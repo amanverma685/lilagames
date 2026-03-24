@@ -47,15 +47,28 @@ function isNakamaMatchUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s.trim().toLowerCase());
 }
 
+/** Strip copy/paste noise (e.g. `.nakama` suffix from Nakama console or shared links). */
+function normalizeNakamaMatchIdInput(raw: string): string {
+  let t = raw.trim().toLowerCase();
+  if (t.endsWith(".nakama")) {
+    t = t.slice(0, -".nakama".length);
+  }
+  return t;
+}
+
+/** Canonical lowercase UUID string if valid after normalization, else null. */
+function parseNakamaMatchId(raw: string): string | null {
+  const t = normalizeNakamaMatchIdInput(raw);
+  return isNakamaMatchUuid(t) ? t : null;
+}
+
 /** Nakama authoritative match id from invite link `?match=uuid` (hash fragment e.g. `#nakama` does not affect `search`). */
 function readNakamaMatchFromUrl(): string | null {
   if (typeof window === "undefined") return null;
   try {
     const q = new URLSearchParams(window.location.search).get("match");
     if (!q) return null;
-    const t = q.trim().toLowerCase();
-    if (!isNakamaMatchUuid(t)) return null;
-    return t;
+    return parseNakamaMatchId(q);
   } catch {
     return null;
   }
@@ -714,8 +727,8 @@ export default function App() {
 
   const joinNakamaMatchFromId = useCallback(
     async (matchIdRaw: string) => {
-      const matchId = matchIdRaw.trim().toLowerCase();
-      if (!isNakamaMatchUuid(matchId)) {
+      const matchId = parseNakamaMatchId(matchIdRaw);
+      if (!matchId) {
         nakMatchJoinStartedRef.current = false;
         setStatusMsg("Enter a valid match ID (UUID from your friend).");
         return;
@@ -1302,9 +1315,15 @@ export default function App() {
         <div className="app-main app-main--full">
           <div className="screen dark screen--fullscreen screen--result">
             <div className="result-layout">
-              <div className="result-layout__main">
+              <section className="result-layout__outcome" aria-labelledby="result-screen-title">
+                <h2 id="result-screen-title" className="result-screen-title">
+                  {resultTitle()}
+                </h2>
+                {matchState.reason ? (
+                  <p className="result-screen-reason muted small">{formatMatchEndReason(matchState.reason)}</p>
+                ) : null}
+                {vsLocalBot ? <p className="muted small result-hint">vs Bot — practice match</p> : null}
                 <div className="result-layout__board">
-                  {vsLocalBot ? <p className="muted small result-hint">vs Bot — practice match</p> : null}
                   <GameBoard
                     board={matchState.board}
                     status={matchState.status}
@@ -1317,44 +1336,9 @@ export default function App() {
                     className="game-board-wrap--result"
                   />
                 </div>
-                <div className="result-layout__actions">
-                  <div className="result-play-again-wrap">
-                    <button type="button" className="btn primary result-play-again" onClick={() => void playAgain()}>
-                      Play again
-                    </button>
-                  </div>
+              </section>
 
-                  {canHumanRematch ? (
-                    <div className="result-rematch">
-                      {rematchOutgoing ? (
-                        <>
-                          <p className="muted small result-rematch-lede">Waiting for opponent to accept…</p>
-                          <button
-                            type="button"
-                            className="btn secondary wide"
-                            onClick={() => localSessionRef.current?.rematchDecline()}
-                          >
-                            Cancel request
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          type="button"
-                          className="btn secondary wide"
-                          onClick={() => {
-                            setStatusMsg(null);
-                            setRematchOutgoing(true);
-                            localSessionRef.current?.rematchPropose();
-                          }}
-                        >
-                          Request rematch
-                        </button>
-                      )}
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-              <aside className="result-layout__sidebar" aria-label="Leaderboard">
+              <section className="result-layout__leaderboard" aria-label="Leaderboard">
                 <div className="result-lb-scroll">
                   <div className="lb-block lb-block--embedded">
                     <h3>Leaderboard</h3>
@@ -1405,7 +1389,44 @@ export default function App() {
                     </table>
                   </div>
                 </div>
-              </aside>
+              </section>
+
+              <div className="result-layout__actions">
+                <div className="result-play-again-wrap">
+                  <button type="button" className="btn primary result-play-again" onClick={() => void playAgain()}>
+                    Play again
+                  </button>
+                </div>
+
+                {canHumanRematch ? (
+                  <div className="result-rematch">
+                    {rematchOutgoing ? (
+                      <>
+                        <p className="muted small result-rematch-lede">Waiting for opponent to accept…</p>
+                        <button
+                          type="button"
+                          className="btn secondary wide"
+                          onClick={() => localSessionRef.current?.rematchDecline()}
+                        >
+                          Cancel request
+                        </button>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="btn secondary wide"
+                        onClick={() => {
+                          setStatusMsg(null);
+                          setRematchOutgoing(true);
+                          localSessionRef.current?.rematchPropose();
+                        }}
+                      >
+                        Request rematch
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+              </div>
             </div>
           </div>
         </div>

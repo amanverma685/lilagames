@@ -1334,9 +1334,9 @@
   gap: clamp(6px, 1.4vmin, 12px);
 }
 
-/* Result screen with sidebar: larger board in the centered main column */
+/* Stacked result screen: board under headline, leaderboard below */
 .result-layout .game-board-wrap--result .game-board-grid {
-  --result-side: min(78vmin, min(48vw, 400px), calc(100svh - 13rem));
+  --result-side: min(88vw, min(42vmin, 320px), calc(100svh - 20rem));
 }
 
 .game-board-wrap--result .game-cell {
@@ -1457,48 +1457,65 @@
   text-align: center;
 }
 
-/* Result: board + summary + scrollable LB in one viewport */
+/* Result: outcome → leaderboard → actions (vertical stack, page scrolls) */
 .screen.screen--result.screen--fullscreen {
   flex: 1;
   min-height: 0;
-  overflow: hidden;
-  padding: 0.3rem 0.55rem 0.4rem;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 0.4rem 0.65rem 0.85rem;
   gap: 0;
   border-radius: 0;
   border-left: none;
   border-right: none;
+  -webkit-overflow-scrolling: touch;
 }
 
 .result-layout {
-  flex: 1;
-  min-height: 0;
   display: flex;
-  flex-direction: row;
+  flex-direction: column;
   align-items: stretch;
-  gap: clamp(0.35rem, 1.2vw, 0.75rem);
+  gap: clamp(0.55rem, 2vmin, 0.95rem);
   width: 100%;
+  max-width: min(100%, 26rem);
+  margin-inline: auto;
+  flex: 0 0 auto;
+  min-height: 0;
 }
 
-.result-layout__main {
-  flex: 1 1 auto;
-  min-width: 0;
-  min-height: 0;
+.result-layout__outcome {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: clamp(0.45rem, 1.5vmin, 0.85rem);
-  padding: 0.15rem clamp(0.25rem, 1vw, 0.5rem) 0.35rem;
+  text-align: center;
+  gap: clamp(0.25rem, 1.2vmin, 0.45rem);
+  flex-shrink: 0;
+}
+
+.result-screen-title {
+  margin: 0;
+  font-size: clamp(1.15rem, 4.2vw, 1.45rem);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #e8f4f0;
+  line-height: 1.2;
+}
+
+.result-screen-reason {
+  margin: 0;
+  max-width: 22rem;
+  line-height: 1.35;
 }
 
 .result-layout__board {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: min(52svh, 62dvh);
+  max-height: min(44svh, 52dvh);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  margin-top: 0.15rem;
   /* visible so win-line SVG stroke caps aren’t clipped on the result screen */
   overflow: visible;
 }
@@ -1511,6 +1528,14 @@
   line-height: 1.2;
 }
 
+.result-layout__leaderboard {
+  flex: 0 1 auto;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
 .result-layout__actions {
   flex-shrink: 0;
   display: flex;
@@ -1518,56 +1543,9 @@
   align-items: center;
   gap: 0.4rem;
   width: 100%;
-  max-width: min(100%, 22rem);
+  padding-top: 0.15rem;
+  padding-bottom: 0.25rem;
   text-align: center;
-}
-
-.result-layout__sidebar {
-  flex: 0 0 clamp(220px, 32vw, 360px);
-  min-width: min(100%, 200px);
-  max-width: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 0.2rem 0 0.35rem clamp(0.45rem, 1.2vw, 0.75rem);
-  border-left: 1px solid rgba(58, 212, 193, 0.14);
-  box-sizing: border-box;
-}
-
-@media (max-width: 720px) {
-  .result-layout {
-    flex-direction: column;
-    align-items: stretch;
-    overflow-y: auto;
-    overflow-x: hidden;
-  }
-
-  .result-layout__main {
-    flex: 0 1 auto;
-    justify-content: flex-start;
-    padding-top: 0.35rem;
-  }
-
-  .result-layout__sidebar {
-    flex: 0 1 auto;
-    width: 100%;
-    min-width: 0;
-    max-height: min(42svh, 320px);
-    border-left: none;
-    border-top: 1px solid rgba(58, 212, 193, 0.14);
-    padding-left: 0;
-    padding-top: 0.55rem;
-    order: 3;
-  }
-
-  .result-layout__board {
-    max-height: min(40svh, 48dvh);
-  }
-
-  .result-layout .game-board-wrap--result .game-board-grid {
-    --result-side: min(82vw, min(34svh, 38dvh));
-  }
 }
 
 .screen--result .lb-block--embedded {
@@ -1611,6 +1589,13 @@
   -webkit-overflow-scrolling: touch;
   padding-right: 4px;
   margin-top: 0.1rem;
+}
+
+.result-layout__leaderboard .result-lb-scroll {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: visible;
+  margin-top: 0;
 }
 
 .screen--result .lb-block {
