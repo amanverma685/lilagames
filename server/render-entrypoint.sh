@@ -11,10 +11,26 @@ DB_USER="${DB_USER:-nakama}"
 DB_PASSWORD="${DB_PASSWORD:-}"
 DB_NAME="${DB_NAME:-nakama}"
 
+# Nakama reads credentials from database.address only (form: user:pass@host:port/dbname).
+# A bare host:port defaults to user "root" and DB "nakama" — wrong for Render Postgres.
 if [ -n "$DB_HOST" ]; then
-  sed -i "s|^[[:space:]]*-[[:space:]]*postgres:5432|  - ${DB_HOST}:${DB_PORT}|" "$CONFIG_PATH"
+  DB_SSLMODE="${DB_SSLMODE:-require}"
+  # Minimal URL-encoding for userinfo (order: % first). Render passwords are usually safe.
+  enc() {
+    printf '%s' "$1" | sed \
+      -e 's/%/%25/g' \
+      -e 's/@/%40/g' \
+      -e 's/:/%3A/g' \
+      -e 's/#/%23/g' \
+      -e 's|/|%2F|g' \
+      -e 's/?/%3F/g'
+  }
+  EU=$(enc "$DB_USER")
+  EP=$(enc "$DB_PASSWORD")
+  DSN="${EU}:${EP}@${DB_HOST}:${DB_PORT}/${DB_NAME}?sslmode=${DB_SSLMODE}"
+  sed -i "s|^[[:space:]]*-[[:space:]]*postgres:5432|    - \"${DSN}\"|" "$CONFIG_PATH"
 fi
-# Match indented keys under `database:` only (avoid `^database:` which would break the YAML map).
+# Keep YAML in sync for humans / older tooling (Nakama uses address DSN above).
 sed -i "s|^[[:space:]]*username: nakama|  username: ${DB_USER}|" "$CONFIG_PATH"
 sed -i "s|^[[:space:]]*password: localdev|  password: ${DB_PASSWORD}|" "$CONFIG_PATH"
 sed -i "s|^[[:space:]]*database: nakama|  database: ${DB_NAME}|" "$CONFIG_PATH"
