@@ -358,7 +358,7 @@ function scheduleBotMove(match) {
     const idx = minimaxPick(st.board, bot.symbol);
     if (idx < 0) return;
     match.applyMove(BOT_ID, idx);
-  }, 350);
+  }, 1000);
 }
 
 function minimaxPick(board, botSym) {

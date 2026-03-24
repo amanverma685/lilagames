@@ -24,6 +24,8 @@ const (
 	pointsWin        = 200
 	pointsDraw       = 50
 
+	botMoveDelay = time.Second
+
 	// Must match frontend LOCAL_BOT_USER_ID / local-server BOT_ID.
 	botUserID = "__bot__"
 )
@@ -53,6 +55,8 @@ type MatchState struct {
 	DeadlineSec int64        `json:"deadlineUnix"` // unix seconds; 0 if not timed
 	VsBot       bool         `json:"vsBot"`
 	TickRate    int          `json:"-"`
+	// Earliest Unix ms at which the bot may move; 0 means no delay armed (see tryApplyBotMove).
+	BotMoveEarliestMs int64 `json:"-"`
 }
 
 type moveMsg struct {
@@ -585,10 +589,20 @@ func tryApplyBotMove(ctx context.Context, nk runtime.NakamaModule, dispatcher ru
 	if bot == nil || bot.Symbol != st.TurnSymbol {
 		return
 	}
+	nowMs := time.Now().UnixMilli()
+	if st.BotMoveEarliestMs == 0 {
+		st.BotMoveEarliestMs = nowMs + botMoveDelay.Milliseconds()
+		return
+	}
+	if nowMs < st.BotMoveEarliestMs {
+		return
+	}
+
 	idx := minimaxPick(st.Board, bot.Symbol)
 	if idx < 0 || st.Board[idx] != 0 {
 		return
 	}
+	st.BotMoveEarliestMs = 0
 	_ = completeMove(ctx, nk, st, botUserID, idx)
 	_ = broadcastState(dispatcher, st, nil)
 }

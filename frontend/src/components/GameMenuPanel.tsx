@@ -87,14 +87,14 @@ export function GameMenuPanel({ open, onClose, preferences, onApply }: Props) {
   };
 
   return (
-    <div className="menu-overlay" role="dialog" aria-modal="true" aria-labelledby="menu-title" onClick={onClose}>
+    <div className="menu-overlay" role="dialog" aria-modal="true" aria-labelledby="options-title" onClick={onClose}>
       <div className="menu-panel" onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="modal-x" aria-label="Close menu" onClick={onClose}>
+        <button type="button" className="modal-x" aria-label="Close options" onClick={onClose}>
           ×
         </button>
         <div className="menu-panel-header">
-          <h2 id="menu-title" className="menu-title">
-            Game menu
+          <h2 id="options-title" className="menu-title">
+            Game options
           </h2>
           <p className="muted small menu-panel-lede">Symbols and colors are only on your screen — not sent to other players.</p>
         </div>

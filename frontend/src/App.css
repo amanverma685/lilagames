@@ -1334,6 +1334,11 @@
   gap: clamp(6px, 1.4vmin, 12px);
 }
 
+/* Result screen with sidebar: larger board in the centered main column */
+.result-layout .game-board-wrap--result .game-board-grid {
+  --result-side: min(78vmin, min(48vw, 400px), calc(100svh - 13rem));
+}
+
 .game-board-wrap--result .game-cell {
   font-size: clamp(1.1rem, min(11vw, 9svh), 2.75rem);
 }
@@ -1468,15 +1473,28 @@
   flex: 1;
   min-height: 0;
   display: flex;
-  flex-direction: column;
-  gap: clamp(0.2rem, 1vmin, 0.35rem);
+  flex-direction: row;
+  align-items: stretch;
+  gap: clamp(0.35rem, 1.2vw, 0.75rem);
   width: 100%;
+}
+
+.result-layout__main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(0.45rem, 1.5vmin, 0.85rem);
+  padding: 0.15rem clamp(0.25rem, 1vw, 0.5rem) 0.35rem;
 }
 
 .result-layout__board {
   flex: 0 1 auto;
   min-height: 0;
-  max-height: min(36svh, 40dvh);
+  max-height: min(52svh, 62dvh);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1493,18 +1511,63 @@
   line-height: 1.2;
 }
 
-.result-layout__meta {
-  flex: 1 1 auto;
+.result-layout__actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  max-width: min(100%, 22rem);
+  text-align: center;
+}
+
+.result-layout__sidebar {
+  flex: 0 0 clamp(220px, 32vw, 360px);
+  min-width: min(100%, 200px);
+  max-width: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 0.35rem;
   overflow: hidden;
-  text-align: center;
-  width: 100%;
-  max-width: min(100%, 420px);
-  margin-inline: auto;
+  padding: 0.2rem 0 0.35rem clamp(0.45rem, 1.2vw, 0.75rem);
+  border-left: 1px solid rgba(58, 212, 193, 0.14);
+  box-sizing: border-box;
+}
+
+@media (max-width: 720px) {
+  .result-layout {
+    flex-direction: column;
+    align-items: stretch;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  .result-layout__main {
+    flex: 0 1 auto;
+    justify-content: flex-start;
+    padding-top: 0.35rem;
+  }
+
+  .result-layout__sidebar {
+    flex: 0 1 auto;
+    width: 100%;
+    min-width: 0;
+    max-height: min(42svh, 320px);
+    border-left: none;
+    border-top: 1px solid rgba(58, 212, 193, 0.14);
+    padding-left: 0;
+    padding-top: 0.55rem;
+    order: 3;
+  }
+
+  .result-layout__board {
+    max-height: min(40svh, 48dvh);
+  }
+
+  .result-layout .game-board-wrap--result .game-board-grid {
+    --result-side: min(82vw, min(34svh, 38dvh));
+  }
 }
 
 .screen--result .lb-block--embedded {

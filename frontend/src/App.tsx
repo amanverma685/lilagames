@@ -146,7 +146,6 @@ export default function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [lastMoveIndex, setLastMoveIndex] = useState<number | null>(null);
   const [hostedRoomCode, setHostedRoomCode] = useState<string | null>(null);
-  const [roomInviteUrl, setRoomInviteUrl] = useState("");
   const [urlRoomToJoin, setUrlRoomToJoin] = useState<string | null>(() =>
     typeof window !== "undefined" && isLocalBackend() ? readRoomFromUrl() : null,
   );
@@ -353,7 +352,6 @@ export default function App() {
         setMatchState(null);
         setPhase("lobby");
         setHostedRoomCode(null);
-        setRoomInviteUrl("");
         setNakamaPrivateHost(false);
         setStatusMsg(snap.reason === "host_left" ? "The host left the room." : "Room closed.");
         void teardownNakama();
@@ -461,13 +459,10 @@ export default function App() {
         setStatusMsg(null);
         setHostedRoomCode(code);
         setMode(m);
-        const invite = `${window.location.origin}${window.location.pathname}?room=${encodeURIComponent(code)}`;
-        setRoomInviteUrl(invite);
         setPhase("waiting_room");
       },
       onRoomCancelled: () => {
         setHostedRoomCode(null);
-        setRoomInviteUrl("");
         setPhase("lobby");
       },
       onRematchOffer: (from) => {
@@ -523,7 +518,6 @@ export default function App() {
     setStatusMsg(null);
     setMatchState(null);
     setHostedRoomCode(null);
-    setRoomInviteUrl("");
     winChimeSigRef.current = "";
     prevBoardRef.current = null;
     setLastMoveIndex(null);
@@ -544,7 +538,6 @@ export default function App() {
     setStatusMsg(null);
     setMatchState(null);
     setHostedRoomCode(null);
-    setRoomInviteUrl("");
     winChimeSigRef.current = "";
     prevBoardRef.current = null;
     setLastMoveIndex(null);
@@ -564,7 +557,6 @@ export default function App() {
     setStatusMsg(null);
     setMatchState(null);
     setHostedRoomCode(null);
-    setRoomInviteUrl("");
     winChimeSigRef.current = "";
     prevBoardRef.current = null;
     setLastMoveIndex(null);
@@ -589,7 +581,6 @@ export default function App() {
     setStatusMsg(null);
     setMatchState(null);
     setHostedRoomCode(null);
-    setRoomInviteUrl("");
     winChimeSigRef.current = "";
     prevBoardRef.current = null;
     setLastMoveIndex(null);
@@ -671,14 +662,11 @@ export default function App() {
       matchIdRef.current = matchId;
       setHostedRoomCode(matchId);
       setNakamaPrivateHost(true);
-      const invite = `${window.location.origin}${window.location.pathname}?match=${encodeURIComponent(matchId)}`;
-      setRoomInviteUrl(invite);
       setPhase("waiting_room");
       await sock.joinMatch(matchId);
     } catch (e) {
       setStatusMsg(clientErrorMessage(e) || "Could not create room");
       setHostedRoomCode(null);
-      setRoomInviteUrl("");
       setNakamaPrivateHost(false);
       await teardownNakama();
       setPhase("lobby");
@@ -692,7 +680,6 @@ export default function App() {
     prevBoardRef.current = null;
     setLastMoveIndex(null);
     setHostedRoomCode(null);
-    setRoomInviteUrl("");
     setNakamaPrivateHost(false);
     const session = sessionRef.current;
     if (!session) {
@@ -730,7 +717,7 @@ export default function App() {
       const matchId = matchIdRaw.trim().toLowerCase();
       if (!isNakamaMatchUuid(matchId)) {
         nakMatchJoinStartedRef.current = false;
-        setStatusMsg("Enter a valid match ID (UUID from your friend’s invite link).");
+        setStatusMsg("Enter a valid match ID (UUID from your friend).");
         return;
       }
       setStatusMsg(null);
@@ -811,7 +798,6 @@ export default function App() {
     }
     await teardownNakama();
     setHostedRoomCode(null);
-    setRoomInviteUrl("");
     setNakamaPrivateHost(false);
     setMatchState(null);
     setPhase("lobby");
@@ -821,14 +807,12 @@ export default function App() {
     if (local && phase === "waiting_room") {
       localSessionRef.current?.cancelRoom();
       setHostedRoomCode(null);
-      setRoomInviteUrl("");
       setPhase("lobby");
       setStatusMsg(null);
       return;
     }
     if (!local && phase === "waiting_room") {
       setHostedRoomCode(null);
-      setRoomInviteUrl("");
       setNakamaPrivateHost(false);
     }
     void leaveMatch();
@@ -859,7 +843,6 @@ export default function App() {
     setRematchOutgoing(false);
     setRematchNotice(null);
     setHostedRoomCode(null);
-    setRoomInviteUrl("");
     urlJoinStartedRef.current = false;
     nakMatchJoinStartedRef.current = false;
     setNakamaPrivateHost(false);
@@ -870,6 +853,29 @@ export default function App() {
     }
     setMatchState(null);
     setPhase("lobby");
+  };
+
+  const handleToolbarHome = () => {
+    void resumeAudioContext();
+    setMenuOpen(false);
+    if (typeof window !== "undefined") {
+      window.history.replaceState({}, "", window.location.pathname);
+    }
+    urlJoinStartedRef.current = false;
+    nakMatchJoinStartedRef.current = false;
+    if (phase === "queue") {
+      void cancelQueue();
+      return;
+    }
+    if (phase === "result") {
+      void playAgain();
+      return;
+    }
+    if (phase === "lobby") {
+      setStatusMsg(null);
+      return;
+    }
+    handleToolbarRestart();
   };
 
   useEffect(() => {
@@ -955,23 +961,17 @@ export default function App() {
   const showToolbar = phase !== "nickname";
   const showRestartBtn = phase === "playing" || phase === "waiting_room";
 
-  const copyRoomInvite = async () => {
-    if (!roomInviteUrl) return;
-    try {
-      await navigator.clipboard.writeText(roomInviteUrl);
-      setStatusMsg("Invite link copied.");
-    } catch {
-      setStatusMsg("Could not copy — select the link and copy manually.");
-    }
-  };
-
   const copyRoomId = async () => {
     if (!hostedRoomCode) return;
     try {
       await navigator.clipboard.writeText(hostedRoomCode);
-      setStatusMsg("Room ID copied — send it to your friend.");
+      setStatusMsg(
+        nakamaPrivateHost
+          ? "Match ID copied — your friend enters it under Join game on the home screen."
+          : "Room ID copied — your friend enters it on the home screen and taps Join game.",
+      );
     } catch {
-      setStatusMsg("Could not copy — select the room ID above and copy manually.");
+      setStatusMsg("Could not copy — select the ID above and copy manually.");
     }
   };
 
@@ -981,6 +981,7 @@ export default function App() {
     <div className="app-shell" style={{ backgroundColor: prefs.backgroundColor }}>
       {showToolbar ? (
         <GameToolbar
+          onHome={handleToolbarHome}
           onMenu={() => {
             void resumeAudioContext();
             setMenuOpen(true);
@@ -1059,7 +1060,7 @@ export default function App() {
               <p className="home-lede">
                 {local
                   ? "Bot practice, matchmaking, or create a room and share the room ID so a friend can join."
-                  : "Random matchmaking, play vs server bot, or create a private room and share the link or match ID."}
+                  : "Random matchmaking, play vs server bot, or create a private room and share the match ID with your friend."}
               </p>
             </header>
 
@@ -1140,7 +1141,7 @@ export default function App() {
                     </button>
                     <button type="button" className="home-cta home-cta--secondary" onClick={() => void startCreateNakamaPrivate()}>
                       <span className="home-cta-title">Private room</span>
-                      <span className="home-cta-sub">Server creates a match — copy the link or UUID for your friend</span>
+                      <span className="home-cta-sub">Server creates a match — share the match ID so your friend can join</span>
                     </button>
                     <div className="home-join-row">
                       <input
@@ -1165,7 +1166,7 @@ export default function App() {
             </section>
 
             <p className="home-hint">
-              Symbols, background color, and sound are under Menu in the toolbar — only you see those choices.
+              Symbols, background color, and sound are under Options in the toolbar — only you see those choices.
             </p>
           </div>
         </div>
@@ -1205,9 +1206,9 @@ export default function App() {
               <h1 className="home-title">Waiting for friend…</h1>
               <p className="home-lede">
                 {nakamaPrivateHost
-                  ? "Share the link or match ID. Game mode is the one you chose when creating this room (Classic or Timed above)."
+                  ? "Share the match ID. Your friend enters it under Join game on the home screen. Mode is the one you chose when creating this room (Classic or Timed above)."
                   : local
-                    ? `Tell your friend the room ID (or link). They paste the ID on the home screen and tap Join game. Mode for this room: ${mode === "timed" ? "Timed" : "Classic"}.`
+                    ? `Tell your friend the room ID. They enter it on the home screen and tap Join game. Mode for this room: ${mode === "timed" ? "Timed" : "Classic"}.`
                     : "Waiting for a second player to join this match."}
               </p>
             </header>
@@ -1227,31 +1228,14 @@ export default function App() {
                     Copy
                   </button>
                 </div>
-                <div className="room-invite-actions room-invite-actions--split">
+                <div className="room-invite-actions">
                   <button type="button" className="home-cta home-cta--primary" onClick={() => void copyRoomId()}>
                     <span className="home-cta-title">{nakamaPrivateHost ? "Copy match ID" : "Copy room ID"}</span>
                     <span className="home-cta-sub">
                       {nakamaPrivateHost
-                        ? "Friend pastes this UUID on the main menu → Join"
-                        : "Friend pastes this on the main menu → Join game"}
+                        ? "Friend enters this UUID under Join game on the home screen"
+                        : "Friend enters this on the home screen → Join game"}
                     </span>
-                  </button>
-                  <button type="button" className="home-cta home-cta--secondary" onClick={() => void copyRoomInvite()}>
-                    <span className="home-cta-title">Copy invite link</span>
-                    <span className="home-cta-sub">Opens this page with the room ready to join</span>
-                  </button>
-                </div>
-                <label className="room-invite-label">Invite link (optional)</label>
-                <div className="room-invite-with-actions">
-                  <input className="input room-invite-field" readOnly value={roomInviteUrl} aria-label="Invite link" />
-                  <button
-                    type="button"
-                    className="btn secondary room-copy-pill"
-                    onClick={() => void copyRoomInvite()}
-                    disabled={!roomInviteUrl}
-                    aria-label="Copy invite link to clipboard"
-                  >
-                    Copy
                   </button>
                 </div>
               </div>
@@ -1318,21 +1302,59 @@ export default function App() {
         <div className="app-main app-main--full">
           <div className="screen dark screen--fullscreen screen--result">
             <div className="result-layout">
-              <div className="result-layout__board">
-                {vsLocalBot ? <p className="muted small result-hint">vs Bot — practice match</p> : null}
-                <GameBoard
-                  board={matchState.board}
-                  status={matchState.status}
-                  reason={matchState.reason}
-                  myPlayerSymbol={myPlayerSymbol}
-                  glyphMe={prefs.glyphMe}
-                  glyphThem={prefs.glyphThem}
-                  lastMoveIndex={lastMoveIndex}
-                  interactive={false}
-                  className="game-board-wrap--result"
-                />
+              <div className="result-layout__main">
+                <div className="result-layout__board">
+                  {vsLocalBot ? <p className="muted small result-hint">vs Bot — practice match</p> : null}
+                  <GameBoard
+                    board={matchState.board}
+                    status={matchState.status}
+                    reason={matchState.reason}
+                    myPlayerSymbol={myPlayerSymbol}
+                    glyphMe={prefs.glyphMe}
+                    glyphThem={prefs.glyphThem}
+                    lastMoveIndex={lastMoveIndex}
+                    interactive={false}
+                    className="game-board-wrap--result"
+                  />
+                </div>
+                <div className="result-layout__actions">
+                  <div className="result-play-again-wrap">
+                    <button type="button" className="btn primary result-play-again" onClick={() => void playAgain()}>
+                      Play again
+                    </button>
+                  </div>
+
+                  {canHumanRematch ? (
+                    <div className="result-rematch">
+                      {rematchOutgoing ? (
+                        <>
+                          <p className="muted small result-rematch-lede">Waiting for opponent to accept…</p>
+                          <button
+                            type="button"
+                            className="btn secondary wide"
+                            onClick={() => localSessionRef.current?.rematchDecline()}
+                          >
+                            Cancel request
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn secondary wide"
+                          onClick={() => {
+                            setStatusMsg(null);
+                            setRematchOutgoing(true);
+                            localSessionRef.current?.rematchPropose();
+                          }}
+                        >
+                          Request rematch
+                        </button>
+                      )}
+                    </div>
+                  ) : null}
+                </div>
               </div>
-              <div className="result-layout__meta">
+              <aside className="result-layout__sidebar" aria-label="Leaderboard">
                 <div className="result-lb-scroll">
                   <div className="lb-block lb-block--embedded">
                     <h3>Leaderboard</h3>
@@ -1383,42 +1405,7 @@ export default function App() {
                     </table>
                   </div>
                 </div>
-
-                <div className="result-play-again-wrap">
-                  <button type="button" className="btn primary result-play-again" onClick={() => void playAgain()}>
-                    Play again
-                  </button>
-                </div>
-
-                {canHumanRematch ? (
-                  <div className="result-rematch">
-                    {rematchOutgoing ? (
-                      <>
-                        <p className="muted small result-rematch-lede">Waiting for opponent to accept…</p>
-                        <button
-                          type="button"
-                          className="btn secondary wide"
-                          onClick={() => localSessionRef.current?.rematchDecline()}
-                        >
-                          Cancel request
-                        </button>
-                      </>
-                    ) : (
-                      <button
-                        type="button"
-                        className="btn secondary wide"
-                        onClick={() => {
-                          setStatusMsg(null);
-                          setRematchOutgoing(true);
-                          localSessionRef.current?.rematchPropose();
-                        }}
-                      >
-                        Request rematch
-                      </button>
-                    )}
-                  </div>
-                ) : null}
-              </div>
+              </aside>
             </div>
           </div>
         </div>

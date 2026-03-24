@@ -1,4 +1,5 @@
 type Props = {
+  onHome: () => void;
   onMenu: () => void;
   onRestart: () => void;
   onLeaderboard: () => void;
@@ -6,6 +7,15 @@ type Props = {
   onToggleSound: () => void;
   showRestart: boolean;
 };
+
+function IconHome() {
+  return (
+    <svg className="toolbar-ico" viewBox="0 0 24 24" aria-hidden fill="none" stroke="currentColor" strokeWidth="2">
+      <path strokeLinecap="round" strokeLinejoin="round" d="M3 10.5 12 3l9 7.5" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M5 10v10h14V10" />
+    </svg>
+  );
+}
 
 function IconMenu() {
   return (
@@ -76,12 +86,22 @@ function IconLeaderboard() {
   );
 }
 
-export function GameToolbar({ onMenu, onRestart, onLeaderboard, soundOn, onToggleSound, showRestart }: Props) {
+export function GameToolbar({ onHome, onMenu, onRestart, onLeaderboard, soundOn, onToggleSound, showRestart }: Props) {
   return (
     <header className="game-toolbar game-toolbar--side" aria-label="Game actions">
-      <button type="button" className="toolbar-btn" onClick={onMenu}>
+      <button
+        type="button"
+        className="toolbar-btn"
+        onClick={onHome}
+        title="Go to lobby. Leaving an active match counts as a loss."
+        aria-label="Home — go to lobby (loss if you leave mid-match)"
+      >
+        <IconHome />
+        <span className="toolbar-btn-label">Home</span>
+      </button>
+      <button type="button" className="toolbar-btn" onClick={onMenu} aria-label="Options">
         <IconMenu />
-        <span className="toolbar-btn-label">Menu</span>
+        <span className="toolbar-btn-label">Options</span>
       </button>
       {showRestart ? (
         <button
