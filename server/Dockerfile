@@ -1,15 +1,42 @@
-# Plugin must be built for the same Nakama version as the runtime image.
+# Plugin must match the Nakama binary: same Go version, same module sources, and similar build flags
+# as github.com/heroiclabs/nakama build/Dockerfile (-trimpath + gc/asm trimpath + -s -w).
+# See: https://heroiclabs.com/docs/nakama/server-framework/go-runtime/go-dependencies/
 ARG NAKAMA_VERSION=3.24.0
+# Pin to the exact tags used by Nakama v3.24.0 (see Nakama go.mod at that release).
+ARG NAKAMA_COMMON_TAG=v1.34.0
+ARG PROTOBUF_GO_TAG=v1.34.2
 
-FROM heroiclabs/nakama-pluginbuilder:${NAKAMA_VERSION} AS builder
+FROM golang:1.23.2-bookworm AS sources
+ARG NAKAMA_COMMON_TAG
+ARG PROTOBUF_GO_TAG
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && git clone --depth 1 --branch "${NAKAMA_COMMON_TAG}" https://github.com/heroiclabs/nakama-common.git /src/nakama-common \
+  && git clone --depth 1 --branch "${PROTOBUF_GO_TAG}" https://github.com/protocolbuffers/protobuf-go.git /src/protobuf-go
+
+FROM golang:1.23.2-bookworm AS builder
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends gcc libc6-dev ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+COPY --from=sources /src/nakama-common /src/nakama-common
+COPY --from=sources /src/protobuf-go /src/protobuf-go
 
 ENV CGO_ENABLED=1
 WORKDIR /backend
 
 COPY go.mod ./
 COPY *.go ./
-# go.mod `replace` pins nakama-common + protobuf to match the Nakama image (avoids plugin load errors).
-RUN go mod tidy && go build --trimpath --buildmode=plugin -o ./backend.so
+
+# Build against the same trees Nakama vendors (avoids google.golang.org/protobuf/internal/pragma mismatch).
+RUN printf '\nreplace github.com/heroiclabs/nakama-common => /src/nakama-common\nreplace google.golang.org/protobuf => /src/protobuf-go\n' >> go.mod \
+  && go mod tidy \
+  && go build -trimpath \
+    -gcflags "-trimpath=/backend" \
+    -asmflags "-trimpath=/backend" \
+    -ldflags "-s -w" \
+    --buildmode=plugin \
+    -o ./backend.so .
 
 FROM heroiclabs/nakama:${NAKAMA_VERSION}
 
