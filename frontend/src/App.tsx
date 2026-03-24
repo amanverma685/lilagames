@@ -181,7 +181,7 @@ export default function App() {
     const session = sessionRef.current;
     if (!session) return;
     try {
-      const res = await client.rpc(session, "leaderboard_top", "{}");
+      const res = await client.rpc(session, "leaderboard_top", {});
       const p = res.payload;
       const parsed: LeaderboardRow[] =
         typeof p === "string"
@@ -221,7 +221,7 @@ export default function App() {
           setLbModalErr("Sign in with a nickname first.");
           return;
         }
-        const res = await client.rpc(session, "leaderboard_top", "{}");
+        const res = await client.rpc(session, "leaderboard_top", {});
         const p = res.payload;
         const parsed: LeaderboardRow[] =
           typeof p === "string"
@@ -621,7 +621,7 @@ export default function App() {
     mmTicketRef.current = null;
     try {
       await sock.connect(session, true);
-      const res = await client.rpc(session, "create_private_match", JSON.stringify({ mode }));
+      const res = await client.rpc(session, "create_private_match", { mode });
       const payload = res.payload;
       const raw =
         typeof payload === "string"
