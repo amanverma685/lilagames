@@ -1,4 +1,4 @@
-/** Must match `BOT_ID` in `local-server/server.mjs` (human vs bot matches). */
+/** Must match `BOT_ID` in `local-server/server.mjs` and bot id in Nakama `server/main.go`. */
 export const LOCAL_BOT_USER_ID = "__bot__";
 
 export type GameMode = "classic" | "timed";
@@ -18,6 +18,8 @@ export interface MatchStatePayload {
   reason: string;
   mode: string;
   deadlineUnix: number;
+  /** Present when the match was created via `create_bot_match` (optional; bot is also detectable via `LOCAL_BOT_USER_ID`). */
+  vsBot?: boolean;
 }
 
 export interface LeaderboardRow {

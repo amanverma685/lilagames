@@ -23,6 +23,9 @@ const (
 	turnSecondsTimed = 30
 	pointsWin        = 200
 	pointsDraw       = 50
+
+	// Must match frontend LOCAL_BOT_USER_ID / local-server BOT_ID.
+	botUserID = "__bot__"
 )
 
 type gameMode string
@@ -48,6 +51,7 @@ type MatchState struct {
 	Reason      string       `json:"reason"`
 	Mode        string       `json:"mode"`
 	DeadlineSec int64        `json:"deadlineUnix"` // unix seconds; 0 if not timed
+	VsBot       bool         `json:"vsBot"`
 	TickRate    int          `json:"-"`
 }
 
@@ -110,6 +114,10 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 		return err
 	}
 
+	if err := initializer.RegisterRpc("create_bot_match", rpcCreateBotMatch); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -134,6 +142,39 @@ func rpcCreatePrivateMatch(ctx context.Context, logger runtime.Logger, db *sql.D
 	}
 	matchID, err := nk.MatchCreate(ctx, matchName, map[string]interface{}{
 		"mode": mode,
+	})
+	if err != nil {
+		return "", err
+	}
+	b, err := json.Marshal(map[string]string{"matchId": matchID})
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func rpcCreateBotMatch(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
+	_ = logger
+	userID, ok := ctx.Value(runtime.RUNTIME_CTX_USER_ID).(string)
+	if !ok || userID == "" {
+		return "", fmt.Errorf("must be signed in to start a bot match")
+	}
+	var in struct {
+		Mode string `json:"mode"`
+	}
+	if payload != "" {
+		_ = json.Unmarshal([]byte(payload), &in)
+	}
+	mode := string(modeClassic)
+	switch in.Mode {
+	case string(modeTimed):
+		mode = string(modeTimed)
+	case string(modeClassic):
+		mode = string(modeClassic)
+	}
+	matchID, err := nk.MatchCreate(ctx, matchName, map[string]interface{}{
+		"mode":   mode,
+		"vs_bot": true,
 	})
 	if err != nil {
 		return "", err
@@ -183,12 +224,25 @@ func (m *TicMatch) MatchInit(ctx context.Context, logger runtime.Logger, db *sql
 			mode = modeTimed
 		}
 	}
+	vsBot := false
+	if v, ok := params["vs_bot"]; ok {
+		switch t := v.(type) {
+		case bool:
+			vsBot = t
+		case string:
+			vsBot = t == "true" || t == "1"
+		}
+	}
 	st := &MatchState{
 		Status:   "playing",
 		Mode:     string(mode),
 		TickRate: 5,
+		VsBot:    vsBot,
 	}
 	label := fmt.Sprintf("game=tic_tac_toe mode=%s", st.Mode)
+	if vsBot {
+		label = label + " vs_bot=1"
+	}
 	return st, st.TickRate, label
 }
 
@@ -198,6 +252,26 @@ func (m *TicMatch) MatchJoinAttempt(ctx context.Context, logger runtime.Logger, 
 		return st, false, "match finished"
 	}
 	uid := presence.GetUserId()
+	if st.VsBot {
+		if uid == botUserID {
+			return st, false, "bot is server-managed"
+		}
+		for _, p := range st.Players {
+			if p.UserID == uid {
+				return st, true, ""
+			}
+		}
+		humans := 0
+		for _, p := range st.Players {
+			if p.UserID != botUserID {
+				humans++
+			}
+		}
+		if humans >= 1 {
+			return st, false, "room full"
+		}
+		return st, true, ""
+	}
 	for _, p := range st.Players {
 		if p.UserID == uid {
 			return st, true, ""
@@ -213,6 +287,9 @@ func (m *TicMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sql
 	st := state.(*MatchState)
 	for _, presence := range presences {
 		uid := presence.GetUserId()
+		if st.VsBot && uid == botUserID {
+			continue
+		}
 		exists := false
 		for _, p := range st.Players {
 			if p.UserID == uid {
@@ -232,6 +309,9 @@ func (m *TicMatch) MatchJoin(ctx context.Context, logger runtime.Logger, db *sql
 			Username: presence.GetUsername(),
 			Symbol:   symbol,
 		})
+	}
+	if st.VsBot {
+		ensureBotPlayer(st)
 	}
 	if len(st.Players) == 2 && st.TurnSymbol == 0 {
 		st.TurnSymbol = 1
@@ -286,6 +366,8 @@ func (m *TicMatch) MatchLeave(ctx context.Context, logger runtime.Logger, db *sq
 }
 
 func (m *TicMatch) MatchLoop(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, dispatcher runtime.MatchDispatcher, tick int64, state interface{}, messages []runtime.MatchData) interface{} {
+	_ = logger
+	_ = db
 	st := state.(*MatchState)
 
 	if st.Status == "playing" && st.Mode == string(modeTimed) && len(st.Players) == 2 && st.DeadlineSec > 0 {
@@ -345,27 +427,15 @@ func (m *TicMatch) MatchLoop(ctx context.Context, logger runtime.Logger, db *sql
 			_ = sendError(dispatcher, sender, "cell_taken")
 			continue
 		}
-		st.Board[mv.Index] = mover.Symbol
-		if w, line := checkWin(st.Board); w != 0 {
-			st.Status = "win"
-			st.WinnerID = sender
-			st.Reason = fmt.Sprintf("line_%v", line)
-			applyMatchResults(ctx, nk, st)
-			_ = broadcastState(dispatcher, st, nil)
-			continue
-		}
-		if boardFull(st.Board) {
-			st.Status = "draw"
-			st.Reason = "board_full"
-			applyMatchResults(ctx, nk, st)
-			_ = broadcastState(dispatcher, st, nil)
-			continue
-		}
-		st.TurnSymbol = 3 - st.TurnSymbol
-		if st.Mode == string(modeTimed) {
-			st.DeadlineSec = time.Now().Add(time.Duration(turnSecondsTimed) * time.Second).Unix()
-		}
+		ended := completeMove(ctx, nk, st, sender, mv.Index)
 		_ = broadcastState(dispatcher, st, nil)
+		if ended {
+			continue
+		}
+		tryApplyBotMove(ctx, nk, dispatcher, st)
+	}
+	if len(messages) == 0 {
+		tryApplyBotMove(ctx, nk, dispatcher, st)
 	}
 	return st
 }
@@ -376,6 +446,151 @@ func (m *TicMatch) MatchTerminate(ctx context.Context, logger runtime.Logger, db
 
 func (m *TicMatch) MatchSignal(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, dispatcher runtime.MatchDispatcher, tick int64, state interface{}, data string) (interface{}, string) {
 	return state, ""
+}
+
+func ensureBotPlayer(st *MatchState) {
+	if !st.VsBot {
+		return
+	}
+	hasBot := false
+	humans := 0
+	for _, p := range st.Players {
+		if p.UserID == botUserID {
+			hasBot = true
+		} else {
+			humans++
+		}
+	}
+	if hasBot || humans != 1 {
+		return
+	}
+	st.Players = append(st.Players, playerSlot{
+		UserID:   botUserID,
+		Username: "Bot",
+		Symbol:   2,
+	})
+}
+
+// completeMove applies a validated move; returns true if the match ended (win/draw).
+func completeMove(ctx context.Context, nk runtime.NakamaModule, st *MatchState, userID string, idx int) (ended bool) {
+	var mover *playerSlot
+	for i := range st.Players {
+		if st.Players[i].UserID == userID {
+			mover = &st.Players[i]
+			break
+		}
+	}
+	if mover == nil || mover.Symbol != st.TurnSymbol || idx < 0 || idx > 8 || st.Board[idx] != 0 {
+		return false
+	}
+	st.Board[idx] = mover.Symbol
+	if w, line := checkWin(st.Board); w != 0 {
+		st.Status = "win"
+		st.WinnerID = userID
+		st.Reason = fmt.Sprintf("line_%v", line)
+		applyMatchResults(ctx, nk, st)
+		return true
+	}
+	if boardFull(st.Board) {
+		st.Status = "draw"
+		st.Reason = "board_full"
+		applyMatchResults(ctx, nk, st)
+		return true
+	}
+	st.TurnSymbol = 3 - st.TurnSymbol
+	if st.Mode == string(modeTimed) {
+		st.DeadlineSec = time.Now().Add(time.Duration(turnSecondsTimed) * time.Second).Unix()
+	}
+	return false
+}
+
+func terminalMinimaxScore(b [9]int, botSym, humSym int) (score int, done bool) {
+	w, _ := checkWin(b)
+	if w == botSym {
+		return 10, true
+	}
+	if w == humSym {
+		return -10, true
+	}
+	if boardFull(b) {
+		return 0, true
+	}
+	return 0, false
+}
+
+func minimaxTTT(b [9]int, isMax bool, botSym, humSym int) int {
+	if sc, ok := terminalMinimaxScore(b, botSym, humSym); ok {
+		return sc
+	}
+	if isMax {
+		best := -1000000
+		for i := 0; i < 9; i++ {
+			if b[i] != 0 {
+				continue
+			}
+			nb := b
+			nb[i] = botSym
+			v := minimaxTTT(nb, false, botSym, humSym)
+			if v > best {
+				best = v
+			}
+		}
+		return best
+	}
+	best := 1000000
+	for i := 0; i < 9; i++ {
+		if b[i] != 0 {
+			continue
+		}
+		nb := b
+		nb[i] = humSym
+		v := minimaxTTT(nb, true, botSym, humSym)
+		if v < best {
+			best = v
+		}
+	}
+	return best
+}
+
+func minimaxPick(board [9]int, botSym int) int {
+	humSym := 3 - botSym
+	bestI := -1
+	bestV := -1000000
+	for i := 0; i < 9; i++ {
+		if board[i] != 0 {
+			continue
+		}
+		nb := board
+		nb[i] = botSym
+		v := minimaxTTT(nb, false, botSym, humSym)
+		if v > bestV {
+			bestV = v
+			bestI = i
+		}
+	}
+	return bestI
+}
+
+func tryApplyBotMove(ctx context.Context, nk runtime.NakamaModule, dispatcher runtime.MatchDispatcher, st *MatchState) {
+	if !st.VsBot || st.Status != "playing" || len(st.Players) < 2 {
+		return
+	}
+	var bot *playerSlot
+	for i := range st.Players {
+		if st.Players[i].UserID == botUserID {
+			bot = &st.Players[i]
+			break
+		}
+	}
+	if bot == nil || bot.Symbol != st.TurnSymbol {
+		return
+	}
+	idx := minimaxPick(st.Board, bot.Symbol)
+	if idx < 0 || st.Board[idx] != 0 {
+		return
+	}
+	_ = completeMove(ctx, nk, st, botUserID, idx)
+	_ = broadcastState(dispatcher, st, nil)
 }
 
 func sendError(dispatcher runtime.MatchDispatcher, userID string, code string) error {
@@ -479,6 +694,9 @@ func metaInt(m map[string]interface{}, key string) int64 {
 }
 
 func adjustLeaderboard(ctx context.Context, nk runtime.NakamaModule, lbID, userID, username string, deltaScore int64, win, loss, draw bool) error {
+	if userID == botUserID {
+		return nil
+	}
 	setOp := int(api.Operator_SET)
 	recs, _, _, _, err := nk.LeaderboardRecordsList(ctx, lbID, []string{userID}, 1, "", 0)
 	if err != nil {

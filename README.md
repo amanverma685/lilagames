@@ -132,6 +132,7 @@ Environment variables (see [`frontend/.env.example`](frontend/.env.example)):
 |----|-------------|
 | `leaderboard_top` | Returns JSON array of top records (rank, `ownerId`, username, score, subscore, metadata). |
 | `create_private_match` | Body: `{"mode":"classic"\|"timed"}`. Returns `{"matchId":"<uuid>"}`. The client then opens a socket and calls `joinMatch(matchId)` (handled in the web UI). |
+| `create_bot_match` | Body: `{"mode":"classic"\|"timed"}`. Creates a match with a server-side minimax bot (`__bot__`). Returns `{"matchId":"<uuid>"}`; client connects and `joinMatch` as usual. |
 
 ## Deployment
 
@@ -146,7 +147,7 @@ Summary: run Nakama + Postgres with the built module ([`server/Dockerfile`](serv
 | [`docker-compose.yml`](docker-compose.yml) | Postgres + Nakama image build |
 | [`server/Dockerfile`](server/Dockerfile) | Builds `backend.so`, copies into Nakama image |
 | [`server/local.yml`](server/local.yml) | Nakama runtime path, DB, console, server key |
-| [`server/main.go`](server/main.go) | Match handler, matchmaker hook, leaderboard + private-match RPCs |
+| [`server/main.go`](server/main.go) | Match handler, matchmaker hook, leaderboard + RPCs (`create_private_match`, `create_bot_match`, …) |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Production deployment documentation |
 | [`frontend/`](frontend/) | Vite React client |
 

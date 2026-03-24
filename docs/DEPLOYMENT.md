@@ -11,6 +11,7 @@ This document describes how to run **tic-tac-toe** in production with **Heroic L
 | **State broadcast** | Snapshots on opcode `1` to all match participants. |
 | **Matchmaking** | `addMatchmaker` from the client with `properties.mode` (`classic` \| `timed`); `RegisterMatchmakerMatched` creates a new authoritative match. |
 | **Private rooms** | RPC `create_private_match` creates a match; friends join with `joinMatch(matchId)` via invite link `?match=<uuid>` or pasted ID. |
+| **Play vs Bot (Nakama)** | RPC `create_bot_match` creates an authoritative match with params `vs_bot: true`; the module adds a synthetic player id `__bot__` and runs minimax in `MatchLoop`. |
 | **Disconnects** | `MatchLeave` awards forfeit to the remaining player when one leaves mid-game; a lone host closing a private room sets status `abandoned` (no leaderboard write). |
 | **Concurrent matches** | Each `MatchCreate` is an isolated Nakama match instance; many matches run in parallel. |
 | **Leaderboard** | Global leaderboard ID (default `tic_tac_toe_global`): score + metadata (`wins`, `losses`, `draws`, `streak`). RPC `leaderboard_top` returns top rows. |
@@ -93,13 +94,24 @@ Set these **build-time** variables in the host dashboard (names must match `VITE
 
 | Variable | Example | Purpose |
 |----------|---------|---------|
-| `VITE_NAKAMA_HOST` | `nakama.example.com` | Public API host |
+| `VITE_NAKAMA_HOST` | `nakama.example.com` | **Nakama** API hostname only — not your static frontend URL, no `https://` prefix |
 | `VITE_NAKAMA_PORT` | `443` or `7350` | Port exposed through the proxy |
 | `VITE_NAKAMA_SERVER_KEY` | *(secret)* | Must match Nakama `server_key` |
 | `VITE_NAKAMA_USE_SSL` | `true` | When using HTTPS/WSS |
 | `VITE_BACKEND` | unset or not `local` | Use Nakama instead of the Node local server |
 
 Redeploy after changing any `VITE_*` value.
+
+### RPC errors (`RPC ID must be set`)
+
+Nakama returns this when the HTTP request’s RPC path does not include an id (e.g. `/v2/rpc/<rpc_id>`). Common causes:
+
+- **`VITE_NAKAMA_HOST` is wrong** — it must be the **Nakama API** hostname (the same service that serves `:7350` / your proxied API), **not** the static frontend host (Netlify, Render static site URL, etc.).
+- **Scheme baked into the host** — use `nakama.example.com`, not `https://nakama.example.com`.
+- **Reverse proxy** strips or rewrites the path so `<rpc_id>` never reaches Nakama.
+- **`VITE_NAKAMA_SERVER_KEY` ≠ Nakama `server_key`** — fix secrets first; some clients surface odd errors until the key matches.
+
+Quick checks: open DevTools → Network on `leaderboard_top` or `create_private_match` and confirm the request URL host is Nakama, path contains the RPC name, and responses are not HTML from a static host.
 
 ## 4. CORS and browser access
 
@@ -120,6 +132,7 @@ If the browser calls Nakama HTTP from a different origin, configure Nakama to al
 3. **Private room**: create room, copy link, open in second browser; verify both play.
 4. **Timed mode**: enable timed mode, confirm countdown and timeout forfeit.
 5. Call RPC **`leaderboard_top`** (or open in-app leaderboard) and confirm rows update.
+6. **Play vs Bot**: use **`create_bot_match`** from the UI; finish a game and confirm the leaderboard does not list the bot user id (`__bot__`).
 
 ## 7. Mobile / PWA
 

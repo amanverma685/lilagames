@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Session, Socket } from "@heroiclabs/nakama-js";
-import { createNakamaClient, getSessionPlayerId } from "./nakamaClient";
+import { createNakamaClient, getSessionPlayerId, nakamaRpc } from "./nakamaClient";
 import { parseWinLineIndex, WIN_LINE_LABELS } from "./boardGeometry";
 import { playClick, playWin, resumeAudioContext } from "./gameAudio";
 import { fetchLocalLeaderboardRows, isLocalBackend, LocalGameSession } from "./localGame";
@@ -181,7 +181,7 @@ export default function App() {
     const session = sessionRef.current;
     if (!session) return;
     try {
-      const res = await client.rpc(session, "leaderboard_top", {});
+      const res = await nakamaRpc(client, session, "leaderboard_top", {});
       const p = res.payload;
       const parsed: LeaderboardRow[] =
         typeof p === "string"
@@ -221,7 +221,7 @@ export default function App() {
           setLbModalErr("Sign in with a nickname first.");
           return;
         }
-        const res = await client.rpc(session, "leaderboard_top", {});
+        const res = await nakamaRpc(client, session, "leaderboard_top", {});
         const p = res.payload;
         const parsed: LeaderboardRow[] =
           typeof p === "string"
@@ -621,7 +621,7 @@ export default function App() {
     mmTicketRef.current = null;
     try {
       await sock.connect(session, true);
-      const res = await client.rpc(session, "create_private_match", { mode });
+      const res = await nakamaRpc(client, session, "create_private_match", { mode });
       const payload = res.payload;
       const raw =
         typeof payload === "string"
@@ -643,6 +643,46 @@ export default function App() {
       setHostedRoomCode(null);
       setRoomInviteUrl("");
       setNakamaPrivateHost(false);
+      await teardownNakama();
+      setPhase("lobby");
+    }
+  }, [attachNakamaMatchHandlers, client, mode, teardownNakama]);
+
+  const startNakamaBot = useCallback(async () => {
+    setStatusMsg(null);
+    setMatchState(null);
+    winChimeSigRef.current = "";
+    prevBoardRef.current = null;
+    setLastMoveIndex(null);
+    setHostedRoomCode(null);
+    setRoomInviteUrl("");
+    setNakamaPrivateHost(false);
+    const session = sessionRef.current;
+    if (!session) {
+      setPhase("nickname");
+      return;
+    }
+    await teardownNakama();
+    const sock = client.createSocket(client.useSSL, false);
+    socketRef.current = sock;
+    attachNakamaMatchHandlers(sock);
+    mmTicketRef.current = null;
+    try {
+      await sock.connect(session, true);
+      const res = await nakamaRpc(client, session, "create_bot_match", { mode });
+      const payload = res.payload;
+      const raw =
+        typeof payload === "string"
+          ? (JSON.parse(payload) as { matchId?: string })
+          : (payload as { matchId?: string });
+      const matchId = raw.matchId;
+      if (!matchId) {
+        throw new Error("Server did not return a match id");
+      }
+      matchIdRef.current = matchId;
+      await sock.joinMatch(matchId);
+    } catch (e) {
+      setStatusMsg(e instanceof Error ? e.message : "Could not start bot match");
       await teardownNakama();
       setPhase("lobby");
     }
@@ -984,7 +1024,7 @@ export default function App() {
               <p className="home-lede">
                 {local
                   ? "Bot practice, matchmaking, or create a room and share the room ID so a friend can join."
-                  : "Random matchmaking, or create a private room and share the link or match ID."}
+                  : "Random matchmaking, play vs server bot, or create a private room and share the link or match ID."}
               </p>
             </header>
 
@@ -1029,7 +1069,7 @@ export default function App() {
                   <>
                     <button type="button" className="home-cta home-cta--primary" onClick={() => void startLocalBot()}>
                       <span className="home-cta-title">Play vs Bot</span>
-                      <span className="home-cta-sub">Practice against a strong minimax opponent</span>
+                      <span className="home-cta-sub">Practice locally against a strong minimax opponent</span>
                     </button>
                     <button type="button" className="home-cta home-cta--secondary" onClick={() => void startCreateRoom()}>
                       <span className="home-cta-title">Create room</span>
@@ -1058,6 +1098,10 @@ export default function App() {
                     <button type="button" className="home-cta home-cta--primary" onClick={() => void startQueue()}>
                       <span className="home-cta-title">Find match</span>
                       <span className="home-cta-sub">Matchmaking pairs you with a random opponent (same mode)</span>
+                    </button>
+                    <button type="button" className="home-cta home-cta--secondary" onClick={() => void startNakamaBot()}>
+                      <span className="home-cta-title">Play vs Bot</span>
+                      <span className="home-cta-sub">Server-side minimax — no score entry for the bot</span>
                     </button>
                     <button type="button" className="home-cta home-cta--secondary" onClick={() => void startCreateNakamaPrivate()}>
                       <span className="home-cta-title">Private room</span>
@@ -1200,7 +1244,7 @@ export default function App() {
           <div className="screen play screen--fullscreen">
             {vsLocalBot ? (
               <p className="muted small screen-play-hint">
-                Vs bot — full board UI, your symbol/background prefs, move click + win-line (same as human matches).
+                Vs bot — practice match; board UI and prefs work the same as human games.
               </p>
             ) : null}
             <div className="turn-row turn-row--stack" aria-live="polite">
@@ -1233,7 +1277,7 @@ export default function App() {
           <div className="screen dark screen--fullscreen screen--result">
             <div className="result-layout">
               <div className="result-layout__board">
-                {vsLocalBot ? <p className="muted small result-hint">vs Bot — local practice match</p> : null}
+                {vsLocalBot ? <p className="muted small result-hint">vs Bot — practice match</p> : null}
                 <GameBoard
                   board={matchState.board}
                   status={matchState.status}
