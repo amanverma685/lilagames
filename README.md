@@ -1,23 +1,143 @@
 # Multiplayer Tic-Tac-Toe (Nakama + React)
 
-Server-authoritative tic-tac-toe with matchmaking, optional **30s timed turns**, and a **global leaderboard** (wins / losses / draws / streak + score). The web client is **mobile-first** (React + Vite + TypeScript) and talks to Nakama over HTTP and WebSockets.
+Server-authoritative tic-tac-toe with matchmaking, optional **30s timed turns**, and a **global leaderboard** (wins / losses / draws / streak + score). The web client is **mobile-first** (React + Vite + TypeScript) and can use either **Heroic Labs Nakama** (production-style) or a **Node WebSocket server** for local development without Docker.
 
-## Architecture
+---
+
+## Contents
+
+- [Setup and installation](#setup-and-installation)
+- [Architecture and design decisions](#architecture-and-design-decisions)
+- [Deployment process](#deployment-process)
+- [API and server configuration](#api-and-server-configuration)
+- [How to test multiplayer](#how-to-test-multiplayer)
+- [Project layout](#project-layout)
+- [Security notes (production)](#security-notes-production)
+- [License](#license)
+
+---
+
+## Setup and installation
+
+### Prerequisites
+
+| Tool | Used for |
+|------|----------|
+| **Node.js 20+** | Frontend (`frontend/`) and optional local game server (`local-server/`) |
+| **Docker** + **Docker Compose** | Nakama + PostgreSQL stack (recommended for full multiplayer testing) |
+| **Go** (optional) | Only if you build or edit [`server/main.go`](server/main.go) outside Docker |
+
+---
+
+### Path A — Local backend only (no Docker)
+
+Use this for quick UI work, **Play vs Bot**, or **two browser tabs** on one machine (human vs human over the Node server).
+
+1. **Start the local WebSocket server**
+
+   ```bash
+   cd local-server
+   npm install
+   npm start
+   ```
+
+   Defaults:
+
+   - WebSocket: `ws://127.0.0.1:8787` (`LOCAL_WS_PORT` in [`local-server/server.mjs`](local-server/server.mjs))
+   - Optional HTTP leaderboard: `http://127.0.0.1:8788` (`LOCAL_HTTP_PORT`)
+
+2. **Configure the frontend for local mode**
+
+   Copy [`frontend/.env.example`](frontend/.env.example) to `frontend/.env` and ensure:
+
+   - `VITE_BACKEND=local`
+   - `VITE_LOCAL_WS_URL=ws://127.0.0.1:8787`
+   - `VITE_LOCAL_HTTP_URL=http://127.0.0.1:8788` (if you use HTTP leaderboard)
+
+3. **Run the UI**
+
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+   Open the URL Vite prints (usually `http://127.0.0.1:5173`).
+
+**Note:** Local leaderboard and match state are **in-memory**; restarting `npm start` clears them.
+
+---
+
+### Path B — Nakama + PostgreSQL (Docker)
+
+Use this to mirror production: device auth, matchmaker, authoritative Go module, and persistent leaderboard.
+
+1. **From the repo root**
+
+   ```bash
+   docker compose up --build
+   ```
+
+   - **API + WebSocket:** `http://127.0.0.1:7350` (default server key: `defaultkey` — see [`server/local.yml`](server/local.yml))
+   - **Console (dev only):** `http://127.0.0.1:7351` — default credentials in `local.yml` (`admin` / `password`). **Do not expose the console publicly in production.**
+
+2. **Frontend env for Nakama**
+
+   ```bash
+   cd frontend
+   cp .env.example .env
+   ```
+
+   Set **`VITE_BACKEND`** to anything **other than** `local` (e.g. remove the line or use `nakama`), then set:
+
+   | Variable | Typical local value |
+   |----------|------------------------|
+   | `VITE_NAKAMA_HOST` | `127.0.0.1` |
+   | `VITE_NAKAMA_PORT` | `7350` |
+   | `VITE_NAKAMA_SERVER_KEY` | `defaultkey` (must match `socket.server_key` in Nakama config) |
+   | `VITE_NAKAMA_USE_SSL` | `false` |
+
+3. **Run the UI**
+
+   ```bash
+   npm install
+   npm run dev
+   ```
+
+The Go runtime plugin is built inside [`server/Dockerfile`](server/Dockerfile) with `heroiclabs/nakama-pluginbuilder` so `backend.so` matches the Linux Nakama binary even when you develop on Windows or macOS.
+
+---
+
+### Production build (frontend)
+
+```bash
+cd frontend
+npm ci
+npm run build
+```
+
+Static assets are emitted to `frontend/dist/` for hosting behind any static file server or CDN.
+
+---
+
+## Architecture and design decisions
+
+### High-level diagram
 
 ```mermaid
 flowchart LR
   subgraph client [Browser]
     UI[React UI]
   end
-  subgraph nakama [Nakama 3.24]
+  subgraph nakama [Nakama 3.26+]
     RT[Realtime]
     MM[Matchmaker]
     RPC[RPC]
     MOD[Go module backend.so]
   end
   DB[(PostgreSQL)]
-  UI -->|HTTP auth RPC| RT
-  UI -->|WebSocket| RT
+  UI -->|HTTP auth + RPC| RT
+  UI -->|WebSocket match + RPC fallback| RT
   RT --> MOD
   MM --> MOD
   RPC --> MOD
@@ -25,137 +145,181 @@ flowchart LR
   RT --> DB
 ```
 
-- **Authoritative logic** lives in [`server/main.go`](server/main.go): match state, move validation, win/draw/forfeit (leave / disconnect / timeout), and leaderboard updates.
-- **Matchmaking**: clients queue with string property `mode` (`classic` | `timed`). `RegisterMatchmakerMatched` creates an authoritative match via `MatchCreate`.
-- **Private rooms (Nakama)**: RPC `create_private_match` creates a match; the host shares `?match=<uuid>` or the raw match id; the friend calls `joinMatch`. Isolated from other matches (each match id is its own instance).
-- **Client** never applies moves locally; it only renders the latest snapshot from opcode `1` and sends move requests on opcode `2`.
+### Design choices
 
-### Requirements checklist (Nakama path)
+| Decision | Rationale |
+|----------|-----------|
+| **Server-authoritative state** | All board updates run in the Go match loop ([`server/main.go`](server/main.go)). The client **never** applies opponent moves by trusting local state; it renders the latest **snapshot** from the server. |
+| **Anti-cheat** | Moves are **requests** (cell index). The server validates turn, legality, and mode (e.g. timed deadline) before mutating state. |
+| **Two transport backends** | **`VITE_BACKEND=local`** uses the Node server in `local-server/` for fast iteration without Postgres. **Nakama** is the real deployment target with persistence and scale-out story. |
+| **Device authentication** | Nakama `authenticateDevice` with a per-tab id (see client) gives guests a stable user id without a custom auth server. |
+| **Matchmaking** | Clients call `addMatchmaker` with query `+properties.mode:classic|timed` and property `{ mode }`. `RegisterMatchmakerMatched` creates a new authoritative match via `MatchCreate`. |
+| **Private rooms** | RPC `create_private_match` returns a `matchId`. The host **shares the match ID**; the friend pastes it under **Join game** on the home screen (no generated invite URL in the UI). |
+| **Bot opponent** | `create_bot_match` creates a match with `vs_bot`; the module drives a minimax-style bot as player `__bot__`. |
+| **Timed mode** | Server tick loop enforces ~30s per move; expiry ends the game with a documented reason (e.g. `turn_timeout`). |
+| **RPC over WebSocket fallback** | Some Nakama versions had broken HTTP RPC path parsing; the client can call RPCs over the socket (see [`frontend/src/nakamaClient.ts`](frontend/src/nakamaClient.ts)). The Dockerfile pins **Nakama 3.26+** to avoid the HTTP RPC bug. |
 
-| Requirement | Status |
-|-------------|--------|
-| Server-authoritative state & move validation | Yes — `MatchLoop` in [`server/main.go`](server/main.go) |
-| Anti-cheat (no client-trusted board) | Yes — only server applies moves |
-| Broadcast validated state | Yes — opcode `1` snapshots |
-| Create / join game rooms | Yes — private match RPC + `joinMatch`; matchmaking creates matches for random pairing |
-| Automatic matchmaking | Yes — `addMatchmaker` + `RegisterMatchmakerMatched` |
-| Room discovery / joining | Yes — invite link + paste match id; random queue for open pairing |
-| Graceful disconnect | Yes — `MatchLeave` forfeit or `abandoned` if host alone leaves |
-| Concurrent sessions | Yes — one Nakama match per game |
-| Leaderboard (wins/losses/streak/score) | Yes — `LeaderboardRecordWrite` + RPC `leaderboard_top` |
-| Timed mode (30s, forfeit on timeout) | Yes — `mode: timed` + tick loop |
-| Deployment documentation | Yes — [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
+### Realtime match protocol (Nakama)
 
-## Prerequisites
+| Opcode | Direction | Purpose |
+|--------|-----------|---------|
+| `1` | Server → clients | **Snapshot** — full match state JSON (board, players, turn, status, etc.) |
+| `2` | Client → server | **Move** — JSON `{ "index": 0..8 }` |
+| `3` | Server → clients | **Error** — JSON with `code` / `for` (user id) for client display |
 
-- **Node.js 20+** (frontend + optional local game server)
-- **Docker** + Docker Compose (only if you use the Nakama + Postgres stack)
+---
 
-## Local setup (no Docker)
+## Deployment process
 
-Use the **Node WebSocket server** for full end-to-end play on one machine: human vs **minimax bot**, or human vs human using **two browser windows**.
+### Documentation map
 
-1. Install and start the local server:
+- **This README** — overview, env vars, testing, and pointers.
+- **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)** — deep dive: TLS, managed Postgres, security checklist, CORS, smoke tests, troubleshooting (e.g. `RPC ID must be set` on old Nakama).
 
-```bash
-cd local-server
-npm install
-npm start
-```
+### Typical production shape
 
-(Default: WebSocket `ws://127.0.0.1:8787` — `LOCAL_WS_PORT`; HTTP leaderboard `http://127.0.0.1:8788/leaderboard` — `LOCAL_HTTP_PORT`.)
+1. Run **PostgreSQL** (managed or container) reachable only from Nakama.
+2. Run **Nakama** with the built **`backend.so`** module and a **non-default** `server_key`.
+3. Terminate **TLS** in front of Nakama (e.g. Caddy/nginx) so browsers get **HTTPS/WSS** (`VITE_NAKAMA_USE_SSL=true`).
+4. Deploy **`frontend/dist`** with **build-time** `VITE_*` variables pointing at the **public Nakama host** (hostname only, no `https://` in `VITE_NAKAMA_HOST`).
 
-Each **browser tab** gets its own player id via `sessionStorage`, so two windows with different nicknames are two distinct users (local or Nakama device auth).
+### Render.com (example)
 
-2. Point the frontend at local mode (already the default in `frontend/.env`):
+[`render.yaml`](render.yaml) defines:
 
-- `VITE_BACKEND=local`
-- `VITE_LOCAL_WS_URL=ws://127.0.0.1:8787`
+- A **Postgres** database and a **Docker** web service for Nakama (context `server/`, [`server/Dockerfile`](server/Dockerfile)).
+- Env injection: `DB_*`, generated `NAKAMA_SERVER_KEY`, optional `LEADERBOARD_ID`.
+- [`server/render-entrypoint.sh`](server/render-entrypoint.sh) patches `local.yml` into a runtime config (DSN, server key, `PORT`), runs migrations, then starts Nakama.
+- A **static** site for the frontend with `VITE_NAKAMA_HOST` from the Nakama service, `VITE_NAKAMA_PORT=443`, `VITE_NAKAMA_USE_SSL=true`, and `VITE_NAKAMA_SERVER_KEY` synced from the backend.
 
-3. Run the UI:
+After changing any `VITE_*` variable, **rebuild and redeploy** the frontend.
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+---
 
-Leaderboard and stats for local mode are **in-memory** (reset when the Node process restarts). Switch to Nakama by removing `VITE_BACKEND=local` (or setting it to anything other than `local`) and running Docker as below.
+## API and server configuration
 
-## Local setup
+### Nakama endpoints (default local)
 
-### 1. Backend (Nakama + Postgres)
+| Port | Service |
+|------|---------|
+| **7350** | gRPC/HTTP API + WebSocket (game + realtime) |
+| **7351** | Developer console (disable or lock down in production) |
 
-From the repo root:
+### Server config file (local Docker)
 
-```bash
-docker compose up --build
-```
+[`server/local.yml`](server/local.yml) includes:
 
-- **API / WebSocket**: `http://127.0.0.1:7350` (default `server_key`: `defaultkey`)
-- **Console** (dev only): `http://127.0.0.1:7351` — default login in [`server/local.yml`](server/local.yml) (`admin` / `password`). **Disable or protect the console in production.**
+- **`database.*`** — Postgres connection (overridden on Render via `render-entrypoint.sh` + `DB_*`).
+- **`runtime.path`** — `/nakama/data/modules` where `backend.so` is mounted.
+- **`runtime.env`** — e.g. `LEADERBOARD_ID` (default `tic_tac_toe_global`) for the Go module.
+- **`session.token_expiry_sec`** — session lifetime.
+- **`socket.server_key`** — must match the client’s `VITE_NAKAMA_SERVER_KEY`.
 
-The Go runtime plugin is built inside [`server/Dockerfile`](server/Dockerfile) with `heroiclabs/nakama-pluginbuilder` so the `.so` matches Linux Nakama even when you develop on Windows.
-
-### 2. Frontend
-
-```bash
-cd frontend
-cp .env.example .env
-npm install
-npm run dev
-```
-
-Then open the URL Vite prints (usually `http://127.0.0.1:5173`).
-
-Environment variables (see [`frontend/.env.example`](frontend/.env.example)):
+### Frontend environment variables
 
 | Variable | Purpose |
 |----------|---------|
-| `VITE_NAKAMA_HOST` | Nakama hostname |
-| `VITE_NAKAMA_PORT` | API port (default `7350`) |
-| `VITE_NAKAMA_SERVER_KEY` | Server key (`defaultkey` in dev) |
-| `VITE_NAKAMA_USE_SSL` | `true` when the page is served over HTTPS and Nakama uses TLS |
+| `VITE_BACKEND` | `local` = Node `local-server`; anything else (e.g. `nakama`) = Nakama client. |
+| `VITE_LOCAL_WS_URL` | WebSocket URL for local server. |
+| `VITE_LOCAL_HTTP_URL` | Optional HTTP base for local leaderboard. |
+| `VITE_NAKAMA_HOST` | Nakama hostname **only** (no scheme, no path). |
+| `VITE_NAKAMA_PORT` | API/WebSocket port as seen by the browser (often `443` behind TLS). |
+| `VITE_NAKAMA_SERVER_KEY` | Must equal Nakama `socket.server_key`. |
+| `VITE_NAKAMA_USE_SSL` | `true` when using `https`/`wss` to Nakama. |
+
+### Registered RPCs (Go module)
+
+| RPC ID | Request body | Response |
+|--------|----------------|----------|
+| `leaderboard_top` | `{}` (or empty) | JSON array of top leaderboard rows (rank, owner id, username, score, metadata: wins/losses/draws/streak). |
+| `create_private_match` | `{"mode":"classic"\|"timed"}` | `{"matchId":"<uuid>"}` — client then `joinMatch(matchId)` over the socket. |
+| `create_bot_match` | `{"mode":"classic"\|"timed"}` | `{"matchId":"<uuid>"}` — same join flow; server adds bot player `__bot__`. |
+
+### Match registration (server)
+
+The module registers the authoritative match handler name used by `MatchCreate` / matchmaker (see `RegisterMatch` in [`server/main.go`](server/main.go)).
+
+---
 
 ## How to test multiplayer
 
-1. Start `docker compose up` and `npm run dev`.
-2. Open **two** browser contexts (e.g. normal window + **InPrivate/Incognito**, or two machines on the same LAN pointing `VITE_NAKAMA_HOST` at your machine’s IP).
-3. Enter **different nicknames**, choose the same **mode** (classic or timed), and click **Find match** on both.
-4. Play a few moves; try invalid actions (wrong turn, occupied cell) — the board should not change.
-5. Optional: **Leave room** mid-game — the opponent should win by forfeit and the leaderboard should update after the match.
-6. **Nakama private room**: one player clicks **Private room**, copies the link; the other opens it or pastes the match UUID under **Join**.
+### Nakama + Docker (`docker compose up` + `npm run dev`)
 
-## RPC
+1. **Random matchmaking**  
+   Open **two** isolated browser contexts (e.g. normal window + **Incognito/InPrivate**, or two devices on the LAN with `VITE_NAKAMA_HOST` pointing at your machine’s IP). Enter **different nicknames**, pick the **same mode** (Classic or Timed), click **Find match** on both. You should pair into one match.
 
-| ID | Description |
-|----|-------------|
-| `leaderboard_top` | Returns JSON array of top records (rank, `ownerId`, username, score, subscore, metadata). |
-| `create_private_match` | Body: `{"mode":"classic"\|"timed"}`. Returns `{"matchId":"<uuid>"}`. The client then opens a socket and calls `joinMatch(matchId)` (handled in the web UI). |
-| `create_bot_match` | Body: `{"mode":"classic"\|"timed"}`. Creates a match with a server-side minimax bot (`__bot__`). Returns `{"matchId":"<uuid>"}`; client connects and `joinMatch` as usual. |
+2. **Move validation**  
+   Try clicking out of turn or an occupied cell — the UI should **not** change the board; you may see an error or “not your turn” style feedback.
 
-## Deployment
+3. **Private room**  
+   Player A: **Private room** → copy **Match ID**. Player B: paste the UUID in **Friend’s match ID** → **Join game**. Both should land in the same waiting/playing flow.
 
-Full guide (cloud providers, TLS, Postgres, static frontend, security checklist): **[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**.
+4. **Disconnect / forfeit**  
+   Mid-game, use toolbar **restart/leave** or close the tab on one side; the other player should receive a win/forfeit or room closure according to server rules.
 
-Summary: run Nakama + Postgres with the built module ([`server/Dockerfile`](server/Dockerfile)), terminate TLS in front of the API/WebSocket port, rotate `defaultkey`, then deploy `frontend/dist` with the correct `VITE_NAKAMA_*` variables.
+5. **Timed mode**  
+   Select **Timed**, start a match, and confirm the countdown and that idle expiry ends the game with a timeout-style result.
+
+6. **Leaderboard**  
+   Finish a match and open **Leaderboard** in the toolbar; scores and W/L/D should update for human players (bot id `__bot__` is not shown as a normal user).
+
+7. **Play vs Bot**  
+   **Play vs Bot** from the home screen; complete a game and confirm behavior and leaderboard.
+
+### Local Node server (`VITE_BACKEND=local`)
+
+1. Start `local-server` and `frontend` as in [Path A](#path-a--local-backend-only-no-docker).
+2. Open **two tabs**, **Continue** with two nicknames.
+3. Use **Find match** (same mode) in both tabs to pair, or use **Create room** / **Join game** with the displayed room code.
+
+### Automated tests
+
+There is **no** bundled E2E suite in this repo; regression testing is **manual** via the flows above. For CI you can add `npm run build` in `frontend/` and `go build` / Docker build for `server/`.
+
+---
 
 ## Project layout
 
 | Path | Role |
 |------|------|
-| [`docker-compose.yml`](docker-compose.yml) | Postgres + Nakama image build |
-| [`server/Dockerfile`](server/Dockerfile) | Builds `backend.so`, copies into Nakama image |
-| [`server/local.yml`](server/local.yml) | Nakama runtime path, DB, console, server key |
-| [`server/main.go`](server/main.go) | Match handler, matchmaker hook, leaderboard + RPCs (`create_private_match`, `create_bot_match`, …) |
-| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Production deployment documentation |
-| [`frontend/`](frontend/) | Vite React client |
+| [`docker-compose.yml`](docker-compose.yml) | Local Postgres + Nakama image build |
+| [`render.yaml`](render.yaml) | Example Render.com blueprint |
+| [`server/Dockerfile`](server/Dockerfile) | Builds `backend.so`, Nakama runtime image |
+| [`server/local.yml`](server/local.yml) | Base Nakama config (local + template for Render script) |
+| [`server/render-entrypoint.sh`](server/render-entrypoint.sh) | Production-style env → config + migrate + start |
+| [`server/main.go`](server/main.go) | Match loop, matchmaker hook, leaderboard, RPCs |
+| [`local-server/`](local-server/) | Node WebSocket game server for dev |
+| [`frontend/`](frontend/) | Vite + React client |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Extended deployment guide |
+
+---
+
+## Requirements checklist (Nakama path)
+
+| Requirement | Status |
+|-------------|--------|
+| Server-authoritative state & move validation | Yes — `MatchLoop` in [`server/main.go`](server/main.go) |
+| Anti-cheat (no client-trusted board) | Yes |
+| Broadcast validated state | Yes — opcode `1` snapshots |
+| Create / join game rooms | Yes — private match RPC + `joinMatch`; matchmaking for random pairing |
+| Automatic matchmaking | Yes — `addMatchmaker` + `RegisterMatchmakerMatched` |
+| Room discovery / joining | Yes — **match ID** shared out-of-band; **Join game** on home screen |
+| Graceful disconnect | Yes — `MatchLeave` forfeit / `abandoned` when host leaves alone |
+| Concurrent sessions | Yes — one Nakama match id per game |
+| Leaderboard | Yes — `LeaderboardRecordWrite` + RPC `leaderboard_top` |
+| Timed mode (30s, forfeit on timeout) | Yes |
+| Deployment documentation | Yes — [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) |
+
+---
 
 ## Security notes (production)
 
-- Replace `defaultkey`, console credentials, and DB password.
-- Do not expose Nakama console publicly.
-- Treat the server key as a secret; use HTTPS and WSS end-to-end.
+- Replace **`defaultkey`**, console credentials, and database passwords.
+- Do not expose the Nakama **console** (7351) to the public internet.
+- Treat **`VITE_NAKAMA_SERVER_KEY`** as a public client secret — it must match the server but is visible in the built JS; for sensitive setups, use Nakama’s session and key rotation guidance.
+- Use **TLS end-to-end** for production (`https` + `wss`).
+
+---
 
 ## License
 

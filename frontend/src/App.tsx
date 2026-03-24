@@ -42,24 +42,25 @@ function readRoomFromUrl(): string | null {
   }
 }
 
-/** Nakama match ids are UUID-shaped strings; allow any hex variant (not only RFC “v4” nibble patterns). */
+const NAKAMA_MATCH_ID_SUFFIX = ".nakama";
+
+/** UUID portion only (hex + dashes); allow any hex variant (not only RFC “v4” nibble patterns). */
 function isNakamaMatchUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s.trim().toLowerCase());
 }
 
-/** Strip copy/paste noise (e.g. `.nakama` suffix from Nakama console or shared links). */
-function normalizeNakamaMatchIdInput(raw: string): string {
-  let t = raw.trim().toLowerCase();
-  if (t.endsWith(".nakama")) {
-    t = t.slice(0, -".nakama".length);
-  }
-  return t;
-}
-
-/** Canonical lowercase UUID string if valid after normalization, else null. */
+/**
+ * Nakama authoritative match ids must be passed to `joinMatch` as `<uuid>.nakama`.
+ * Accepts either `uuid` or `uuid.nakama` from paste/console; never strip the suffix.
+ */
 function parseNakamaMatchId(raw: string): string | null {
-  const t = normalizeNakamaMatchIdInput(raw);
-  return isNakamaMatchUuid(t) ? t : null;
+  const t = raw.trim().toLowerCase();
+  if (!t) return null;
+  if (t.endsWith(NAKAMA_MATCH_ID_SUFFIX)) {
+    const uuidPart = t.slice(0, -NAKAMA_MATCH_ID_SUFFIX.length);
+    return isNakamaMatchUuid(uuidPart) ? `${uuidPart}${NAKAMA_MATCH_ID_SUFFIX}` : null;
+  }
+  return isNakamaMatchUuid(t) ? `${t}${NAKAMA_MATCH_ID_SUFFIX}` : null;
 }
 
 /** Nakama authoritative match id from invite link `?match=uuid` (hash fragment e.g. `#nakama` does not affect `search`). */
@@ -730,7 +731,7 @@ export default function App() {
       const matchId = parseNakamaMatchId(matchIdRaw);
       if (!matchId) {
         nakMatchJoinStartedRef.current = false;
-        setStatusMsg("Enter a valid match ID (UUID from your friend).");
+        setStatusMsg("Enter a valid match ID (UUID, or UUID ending in .nakama).");
         return;
       }
       setStatusMsg(null);
@@ -1159,7 +1160,7 @@ export default function App() {
                     <div className="home-join-row">
                       <input
                         className="input home-join-input"
-                        placeholder="Friend’s match ID (UUID)"
+                        placeholder="Friend’s match ID"
                         value={nakamaJoinDraft}
                         onChange={(e) => setNakamaJoinDraft(e.target.value)}
                         spellCheck={false}

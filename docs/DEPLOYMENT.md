@@ -10,7 +10,7 @@ This document describes how to run **tic-tac-toe** in production with **Heroic L
 | **Anti-cheat** | Clients only request moves; the server applies them after validation. |
 | **State broadcast** | Snapshots on opcode `1` to all match participants. |
 | **Matchmaking** | `addMatchmaker` from the client with `properties.mode` (`classic` \| `timed`); `RegisterMatchmakerMatched` creates a new authoritative match. |
-| **Private rooms** | RPC `create_private_match` creates a match; friends join with `joinMatch(matchId)` via invite link `?match=<uuid>` or pasted ID. |
+| **Private rooms** | RPC `create_private_match` creates a match; friends join with `joinMatch(matchId)` after pasting the match UUID on the home screen (**Join game**). |
 | **Play vs Bot (Nakama)** | RPC `create_bot_match` creates an authoritative match with params `vs_bot: true`; the module adds a synthetic player id `__bot__` and runs minimax in `MatchLoop`. |
 | **Disconnects** | `MatchLeave` awards forfeit to the remaining player when one leaves mid-game; a lone host closing a private room sets status `abandoned` (no leaderboard write). |
 | **Concurrent matches** | Each `MatchCreate` is an isolated Nakama match instance; many matches run in parallel. |
@@ -135,7 +135,7 @@ If the browser calls Nakama HTTP from a different origin, configure Nakama to al
 
 1. Open the deployed frontend; set nickname (device auth).
 2. **Find match** in two separate browsers (or incognito); complete a game.
-3. **Private room**: create room, copy link, open in second browser; verify both play.
+3. **Private room**: create room, copy match ID; second browser pastes ID under **Join game**; verify both play.
 4. **Timed mode**: enable timed mode, confirm countdown and timeout forfeit.
 5. Call RPC **`leaderboard_top`** (or open in-app leaderboard) and confirm rows update.
 6. **Play vs Bot**: use **`create_bot_match`** from the UI; finish a game and confirm the leaderboard does not list the bot user id (`__bot__`).
