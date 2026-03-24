@@ -8,8 +8,8 @@ WORKDIR /backend
 
 COPY go.mod ./
 COPY *.go ./
-RUN go mod tidy
-RUN go build --trimpath --buildmode=plugin -o ./backend.so
+# go.mod `replace` pins nakama-common + protobuf to match the Nakama image (avoids plugin load errors).
+RUN go mod tidy && go build --trimpath --buildmode=plugin -o ./backend.so
 
 FROM heroiclabs/nakama:${NAKAMA_VERSION}
 
