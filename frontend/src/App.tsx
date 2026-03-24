@@ -42,7 +42,12 @@ function readRoomFromUrl(): string | null {
   }
 }
 
-/** Nakama authoritative match id from invite link `?match=uuid`. */
+/** Nakama match ids are UUID-shaped strings; allow any hex variant (not only RFC “v4” nibble patterns). */
+function isNakamaMatchUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(s.trim().toLowerCase());
+}
+
+/** Nakama authoritative match id from invite link `?match=uuid` (hash fragment e.g. `#nakama` does not affect `search`). */
 function readNakamaMatchFromUrl(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -54,10 +59,6 @@ function readNakamaMatchFromUrl(): string | null {
   } catch {
     return null;
   }
-}
-
-function isNakamaMatchUuid(s: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(s.trim().toLowerCase());
 }
 
 function humanizeLocalError(code: string): string {
@@ -130,6 +131,9 @@ export default function App() {
   const [nickname, setNickname] = useState(() => generateRandomNickname());
   const [mode, setMode] = useState<GameMode>("classic");
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  /** Incrementing key triggers CSS animation each time the server rejects a move (not your turn). */
+  const [opponentTurnNoticeKey, setOpponentTurnNoticeKey] = useState<number | null>(null);
+  const opponentTurnNoticeSeqRef = useRef(0);
   const [matchState, setMatchState] = useState<MatchStatePayload | null>(null);
   const [myUserId, setMyUserId] = useState<string | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardRow[]>([]);
@@ -146,9 +150,6 @@ export default function App() {
   const [urlRoomToJoin, setUrlRoomToJoin] = useState<string | null>(() =>
     typeof window !== "undefined" && isLocalBackend() ? readRoomFromUrl() : null,
   );
-  const [urlNakamaMatchToJoin, setUrlNakamaMatchToJoin] = useState<string | null>(() =>
-    typeof window !== "undefined" && !isLocalBackend() ? readNakamaMatchFromUrl() : null,
-  );
   const [joinCodeDraft, setJoinCodeDraft] = useState("");
   const [nakamaJoinDraft, setNakamaJoinDraft] = useState("");
   const [nakamaPrivateHost, setNakamaPrivateHost] = useState(false);
@@ -156,10 +157,27 @@ export default function App() {
   const [rematchOutgoing, setRematchOutgoing] = useState(false);
   const [rematchNotice, setRematchNotice] = useState<string | null>(null);
   const rematchOfferFromRef = useRef<string | null>(null);
+  const [resultOutcomeDismissed, setResultOutcomeDismissed] = useState(false);
 
   useLayoutEffect(() => {
     rematchOfferFromRef.current = rematchOfferFrom;
   }, [rematchOfferFrom]);
+
+  useEffect(() => {
+    if (phase === "result") setResultOutcomeDismissed(false);
+  }, [phase]);
+
+  useEffect(() => {
+    if (opponentTurnNoticeKey === null) return;
+    const ms = 2350;
+    const t = window.setTimeout(() => setOpponentTurnNoticeKey(null), ms);
+    return () => window.clearTimeout(t);
+  }, [opponentTurnNoticeKey]);
+
+  const showOpponentTurnNotice = useCallback(() => {
+    opponentTurnNoticeSeqRef.current += 1;
+    setOpponentTurnNoticeKey(opponentTurnNoticeSeqRef.current);
+  }, []);
 
   const prevBoardRef = useRef<number[] | null>(null);
   const winChimeSigRef = useRef<string>("");
@@ -373,6 +391,10 @@ export default function App() {
             const err = JSON.parse(decodeMatchData(md.data)) as { code?: string; for?: string };
             const uid = sessionRef.current?.user_id;
             if (err.for && uid && err.for !== uid) return;
+            if (err.code === "not_your_turn") {
+              showOpponentTurnNotice();
+              return;
+            }
             setStatusMsg(err.code ?? "error");
           } catch {
             /* ignore */
@@ -390,7 +412,7 @@ export default function App() {
         }
       };
     },
-    [processNakamaSnapshot],
+    [processNakamaSnapshot, showOpponentTurnNotice],
   );
 
   const teardownLocal = useCallback(() => {
@@ -426,6 +448,10 @@ export default function App() {
         }
         if (["no_rematch_session", "rematch_pending"].includes(c)) {
           setRematchOutgoing(false);
+        }
+        if (c === "not_your_turn") {
+          showOpponentTurnNotice();
+          return;
         }
         setStatusMsg(humanizeLocalError(c));
       },
@@ -465,7 +491,7 @@ export default function App() {
         setRematchNotice("Rematch cancelled — other player left.");
       },
     });
-  }, [nickname]);
+  }, [nickname, showOpponentTurnNotice]);
 
   const onNicknameContinue = async () => {
     setStatusMsg(null);
@@ -483,6 +509,11 @@ export default function App() {
       setMyUserId(session.user_id || null);
       await client.updateAccount(session, { username: name });
       setPhase("lobby");
+      const inviteMatchId = readNakamaMatchFromUrl();
+      if (inviteMatchId && !nakMatchJoinStartedRef.current) {
+        nakMatchJoinStartedRef.current = true;
+        void joinNakamaMatchFromId(inviteMatchId);
+      }
     } catch (e) {
       setStatusMsg(e instanceof Error ? e.message : "Auth failed");
     }
@@ -698,6 +729,7 @@ export default function App() {
     async (matchIdRaw: string) => {
       const matchId = matchIdRaw.trim().toLowerCase();
       if (!isNakamaMatchUuid(matchId)) {
+        nakMatchJoinStartedRef.current = false;
         setStatusMsg("Enter a valid match ID (UUID from your friend’s invite link).");
         return;
       }
@@ -708,6 +740,7 @@ export default function App() {
       setLastMoveIndex(null);
       const session = sessionRef.current;
       if (!session) {
+        nakMatchJoinStartedRef.current = false;
         setPhase("nickname");
         return;
       }
@@ -861,18 +894,14 @@ export default function App() {
     })();
   }, [local, phase, urlRoomToJoin, makeLocalSession]);
 
+  /** Join invite link (`?match=`) after lobby is shown, e.g. returning player with session from a prior tab state. Reads live `location.search` so we never miss the id due to stale React state. */
   useEffect(() => {
-    if (local || phase !== "lobby" || !urlNakamaMatchToJoin || nakMatchJoinStartedRef.current) return;
+    if (local || phase !== "lobby" || nakMatchJoinStartedRef.current) return;
+    const mid = readNakamaMatchFromUrl();
+    if (!mid) return;
     nakMatchJoinStartedRef.current = true;
-    const mid = urlNakamaMatchToJoin;
-    setUrlNakamaMatchToJoin(null);
-    if (typeof window !== "undefined") {
-      window.history.replaceState({}, "", window.location.pathname);
-    }
-    void joinNakamaMatchFromId(mid).finally(() => {
-      /* on failure joinNakamaMatchFromId resets ref; on success keep true until lobby */
-    });
-  }, [joinNakamaMatchFromId, local, phase, urlNakamaMatchToJoin]);
+    void joinNakamaMatchFromId(mid);
+  }, [joinNakamaMatchFromId, local, phase]);
 
   const secondsLeft = useMemo(() => {
     if (!matchState?.deadlineUnix || matchState.mode !== "timed") return null;
@@ -1136,7 +1165,7 @@ export default function App() {
             </section>
 
             <p className="home-hint">
-              Symbols, background color, and sound are under Menu on the right — only you see those choices.
+              Symbols, background color, and sound are under Menu in the toolbar — only you see those choices.
             </p>
           </div>
         </div>
@@ -1273,6 +1302,13 @@ export default function App() {
               onCellClick={(i) => void sendMove(i)}
               onPlayClickSound={() => playClick(prefs.soundOn)}
             />
+            {opponentTurnNoticeKey !== null ? (
+              <div className="play-turn-toast-slot" aria-live="polite">
+                <div key={opponentTurnNoticeKey} className="play-turn-toast">
+                  Opponent&apos;s turn
+                </div>
+              </div>
+            ) : null}
             {statusMsg && <p className="error small">{statusMsg}</p>}
           </div>
         </div>
@@ -1297,16 +1333,8 @@ export default function App() {
                 />
               </div>
               <div className="result-layout__meta">
-                <div className="result-icon">
-                  {matchState.status === "draw" ? "=" : matchState.winnerUserId === myUserId ? "★" : "×"}
-                </div>
-                <h2 className="result-title">{resultTitle()}</h2>
-                {matchState.reason ? (
-                  <p className="muted small">{formatMatchEndReason(matchState.reason)}</p>
-                ) : null}
-
                 <div className="result-lb-scroll">
-                  <div className="lb-block">
+                  <div className="lb-block lb-block--embedded">
                     <h3>Leaderboard</h3>
                     <table className="lb-table">
                       <thead>
@@ -1356,6 +1384,12 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="result-play-again-wrap">
+                  <button type="button" className="btn primary result-play-again" onClick={() => void playAgain()}>
+                    Play again
+                  </button>
+                </div>
+
                 {canHumanRematch ? (
                   <div className="result-rematch">
                     {rematchOutgoing ? (
@@ -1384,15 +1418,44 @@ export default function App() {
                     )}
                   </div>
                 ) : null}
-
-                <button type="button" className="btn primary wide" onClick={() => void playAgain()}>
-                  Play again
-                </button>
               </div>
             </div>
           </div>
         </div>
       )}
+
+      {phase === "result" && matchState && !resultOutcomeDismissed ? (
+        <div
+          className="modal-root modal-root--game-result"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="game-result-title"
+          onClick={() => setResultOutcomeDismissed(true)}
+        >
+          <div className="modal-panel modal-panel--game-result" onClick={(e) => e.stopPropagation()}>
+            <button
+              type="button"
+              className="modal-x"
+              aria-label="Close result summary"
+              onClick={() => setResultOutcomeDismissed(true)}
+            >
+              ×
+            </button>
+            <div className="game-result-modal__icon" aria-hidden>
+              {matchState.status === "draw" ? "=" : matchState.winnerUserId === myUserId ? "★" : "×"}
+            </div>
+            <h2 id="game-result-title" className="game-result-modal__title">
+              {resultTitle()}
+            </h2>
+            {matchState.reason ? (
+              <p className="game-result-modal__reason muted small">{formatMatchEndReason(matchState.reason)}</p>
+            ) : null}
+            <button type="button" className="btn primary wide game-result-modal__cta" onClick={() => setResultOutcomeDismissed(true)}>
+              Continue
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {canHumanRematch && phase === "result" && rematchOfferFrom ? (
         <div
