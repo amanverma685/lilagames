@@ -1,5 +1,6 @@
 # Plugin must be built with the same Nakama release and pinned Go dependencies.
-ARG NAKAMA_VERSION=3.24.0
+# 3.26+ fixes HTTP RPC: 3.24 used r.PathValue("id") with gorilla/mux, so id was always empty → "RPC ID must be set".
+ARG NAKAMA_VERSION=3.26.0
 
 FROM heroiclabs/nakama-pluginbuilder:${NAKAMA_VERSION} AS builder
 

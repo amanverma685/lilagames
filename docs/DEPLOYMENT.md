@@ -104,14 +104,18 @@ Redeploy after changing any `VITE_*` value.
 
 ### RPC errors (`RPC ID must be set`)
 
-Nakama returns this when the HTTP request’s RPC path does not include an id (e.g. `/v2/rpc/<rpc_id>`). Common causes:
+Symptoms: `POST /v2/rpc/create_private_match` returns **400** even though the RPC name is in the URL.
 
-- **`VITE_NAKAMA_HOST` is wrong** — it must be the **Nakama API** hostname (the same service that serves `:7350` / your proxied API), **not** the static frontend host (Netlify, Render static site URL, etc.).
+**Server bug (fixed in newer Nakama):** Nakama **3.24.x** read the RPC id with `http.Request.PathValue("id")` while the route is registered on **gorilla/mux** (`/v2/rpc/{id:.*}`). `PathValue` stays empty, so **every** HTTP RPC fails with this message. **Use Nakama 3.26+** (this repo’s `server/Dockerfile` sets `NAKAMA_VERSION` accordingly). Rebuild and redeploy the Nakama Docker service after changing it.
+
+Other client/env causes:
+
+- **`VITE_NAKAMA_HOST` is wrong** — it must be the **Nakama API** hostname, **not** the static frontend host.
 - **Scheme baked into the host** — use `nakama.example.com`, not `https://nakama.example.com`.
-- **Reverse proxy** strips or rewrites the path so `<rpc_id>` never reaches Nakama.
-- **`VITE_NAKAMA_SERVER_KEY` ≠ Nakama `server_key`** — fix secrets first; some clients surface odd errors until the key matches.
+- **Reverse proxy** strips or rewrites `/v2/rpc/<id>`.
+- **`VITE_NAKAMA_SERVER_KEY` ≠ Nakama `server_key`**.
 
-Quick checks: open DevTools → Network on `leaderboard_top` or `create_private_match` and confirm the request URL host is Nakama, path contains the RPC name, and responses are not HTML from a static host.
+Quick checks: DevTools → Network: URL host is Nakama, path includes the RPC id, response is JSON not HTML.
 
 ## 4. CORS and browser access
 

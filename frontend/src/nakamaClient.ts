@@ -22,16 +22,38 @@ export function nakamaConnectionSummary(): string {
  * Nakama returns `RPC ID must be set` when the HTTP RPC path is malformed (missing id segment).
  * Common causes: VITE_NAKAMA_HOST points at the static site or a proxy that strips `/v2/rpc/<id>`.
  */
-export function enhanceRpcError(err: unknown, rpcId: string): Error {
-  const base = err instanceof Error ? err.message : String(err);
+function isFetchResponse(x: unknown): x is Response {
+  return typeof x === "object" && x !== null && typeof (x as Response).json === "function";
+}
+
+/** nakama-js rejects failed HTTP with the raw `Response` object — normalize to Error with JSON body message. */
+export async function nakamaHttpFailureToError(err: unknown): Promise<Error> {
+  if (err instanceof Error) {
+    return err;
+  }
+  if (isFetchResponse(err)) {
+    try {
+      const j = (await err.json()) as { message?: string; error?: string };
+      const m = j.message ?? j.error ?? `${err.status} ${err.statusText}`;
+      return new Error(m);
+    } catch {
+      return new Error(`${err.status} ${err.statusText}`);
+    }
+  }
+  return new Error(String(err));
+}
+
+export async function enhanceRpcError(err: unknown, rpcId: string): Promise<Error> {
+  const e = await nakamaHttpFailureToError(err);
+  const base = e.message;
   if (base.includes("RPC ID must be set")) {
     return new Error(
-      `${base} (${rpcId}). The RPC id was missing from the request path — usually the client is not ` +
-        `talking to the Nakama API host, or a reverse proxy rewrote the URL. ${nakamaConnectionSummary()} ` +
-        `Ensure VITE_NAKAMA_SERVER_KEY matches Nakama server_key.`,
+      `${base} (${rpcId}). If the NAKAMA_VERSION is 3.24.x, upgrade the server image to 3.26+ ` +
+        `(HTTP RPC id was read with PathValue while routes use gorilla/mux). Also verify ${nakamaConnectionSummary()} ` +
+        `and VITE_NAKAMA_SERVER_KEY matches Nakama server_key.`,
     );
   }
-  return err instanceof Error ? err : new Error(base);
+  return e;
 }
 
 export async function nakamaRpc(
@@ -43,7 +65,7 @@ export async function nakamaRpc(
   try {
     return await client.rpc(session, rpcId, body);
   } catch (e) {
-    throw enhanceRpcError(e, rpcId);
+    throw await enhanceRpcError(e, rpcId);
   }
 }
 
