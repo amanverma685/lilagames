@@ -1,0 +1,65 @@
+databases:
+  - name: lilagames-db
+    databaseName: nakama
+    user: nakama
+    plan: free
+
+services:
+  - type: web
+    name: lilagames-nakama
+    runtime: docker
+    plan: free
+    dockerContext: ./server
+    dockerfilePath: ./server/Dockerfile.render
+    healthCheckPath: /
+    envVars:
+      - key: DB_HOST
+        fromDatabase:
+          name: lilagames-db
+          property: host
+      - key: DB_PORT
+        fromDatabase:
+          name: lilagames-db
+          property: port
+      - key: DB_USER
+        fromDatabase:
+          name: lilagames-db
+          property: user
+      - key: DB_PASSWORD
+        fromDatabase:
+          name: lilagames-db
+          property: password
+      - key: DB_NAME
+        fromDatabase:
+          name: lilagames-db
+          property: database
+      - key: NAKAMA_SERVER_KEY
+        generateValue: true
+      - key: LEADERBOARD_ID
+        value: tic_tac_toe_global
+
+  - type: web
+    name: lilagames-frontend
+    runtime: static
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci ; npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_BACKEND
+        value: nakama
+      - key: VITE_NAKAMA_HOST
+        fromService:
+          type: web
+          name: lilagames-nakama
+          property: host
+      - key: VITE_NAKAMA_PORT
+        value: "443"
+      - key: VITE_NAKAMA_USE_SSL
+        value: "true"
+      # Same secret as Nakama `socket.server_key` (generated on backend service).
+      - key: VITE_NAKAMA_SERVER_KEY
+        fromService:
+          type: web
+          name: lilagames-nakama
+          envVarKey: NAKAMA_SERVER_KEY

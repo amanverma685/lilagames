@@ -1,0 +1,9 @@
+{
+  "name": "lilagames",
+  "private": true,
+  "scripts": {
+    "dev:local-server": "npm start --prefix local-server",
+    "dev:frontend": "npm run dev --prefix frontend",
+    "install:all": "npm install --prefix local-server ; npm install --prefix frontend"
+  }
+}

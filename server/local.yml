@@ -1,0 +1,22 @@
+name: nakama
+logger:
+  level: INFO
+database:
+  address:
+    - postgres:5432
+  username: nakama
+  password: localdev
+  database: nakama
+  max_open_conns: 100
+runtime:
+  path: /nakama/data/modules
+  env:
+    - LEADERBOARD_ID=tic_tac_toe_global
+session:
+  token_expiry_sec: 7200
+socket:
+  server_key: defaultkey
+console:
+  username: admin
+  password: password
+  port: 7351

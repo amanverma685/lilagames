@@ -1,0 +1,26 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+#root {
+  margin: 0;
+  min-height: 100%;
+  min-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+body {
+  font-family: "Plus Jakarta Sans", system-ui, "Segoe UI", sans-serif;
+  background: #0b0d10;
+}
