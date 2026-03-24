@@ -46,6 +46,8 @@ services:
     buildCommand: npm ci ; npm run build
     staticPublishPath: dist
     envVars:
+      - key: NODE_VERSION
+        value: "20"
       - key: VITE_BACKEND
         value: nakama
       - key: VITE_NAKAMA_HOST
