@@ -1,4 +1,4 @@
-import type { Session } from "@heroiclabs/nakama-js";
+import type { Session, Socket } from "@heroiclabs/nakama-js";
 import { Client } from "@heroiclabs/nakama-js";
 
 function envBool(v: string | undefined, fallback: boolean): boolean {
@@ -18,15 +18,15 @@ export function nakamaConnectionSummary(): string {
   return `${scheme} host=${host} port=${port}`;
 }
 
-/**
- * Nakama returns `RPC ID must be set` when the HTTP RPC path is malformed (missing id segment).
- * Common causes: VITE_NAKAMA_HOST points at the static site or a proxy that strips `/v2/rpc/<id>`.
- */
+function isLikelyRpcIdMustSetMessage(msg: string): boolean {
+  return msg.includes("RPC ID must be set");
+}
+
 function isFetchResponse(x: unknown): x is Response {
   return typeof x === "object" && x !== null && typeof (x as Response).json === "function";
 }
 
-/** nakama-js rejects failed HTTP with the raw `Response` object — normalize to Error with JSON body message. */
+/** nakama-js rejects failed HTTP with the raw `Response` — normalize to Error with JSON body message. */
 export async function nakamaHttpFailureToError(err: unknown): Promise<Error> {
   if (err instanceof Error) {
     return err;
@@ -46,14 +46,88 @@ export async function nakamaHttpFailureToError(err: unknown): Promise<Error> {
 export async function enhanceRpcError(err: unknown, rpcId: string): Promise<Error> {
   const e = await nakamaHttpFailureToError(err);
   const base = e.message;
-  if (base.includes("RPC ID must be set")) {
+  if (isLikelyRpcIdMustSetMessage(base)) {
     return new Error(
-      `${base} (${rpcId}). If the NAKAMA_VERSION is 3.24.x, upgrade the server image to 3.26+ ` +
-        `(HTTP RPC id was read with PathValue while routes use gorilla/mux). Also verify ${nakamaConnectionSummary()} ` +
-        `and VITE_NAKAMA_SERVER_KEY matches Nakama server_key.`,
+      `${base} (${rpcId}). On Nakama 3.24.x, HTTP RPC is broken (bad path id). This app falls back to WebSocket RPC; ` +
+        `if you still see this, redeploy the server with NAKAMA_VERSION 3.25+ (see Dockerfile). ${nakamaConnectionSummary()}`,
     );
   }
   return e;
+}
+
+/** Human-readable message for UI (avoids "[object Response]" from uncaught fetch rejections). */
+export function clientErrorMessage(e: unknown): string {
+  if (e instanceof Error) return e.message;
+  if (typeof e === "object" && e !== null) {
+    const o = e as Record<string, unknown>;
+    if (typeof o.message === "string") return o.message;
+  }
+  const s = String(e);
+  if (s === "[object Response]") return "Request failed — check your connection or refresh the page.";
+  return s || "Something went wrong";
+}
+
+function normalizeSocketRpcResult(raw: unknown): { id?: string; payloadRaw?: string } {
+  if (!raw || typeof raw !== "object") {
+    return {};
+  }
+  const o = raw as Record<string, unknown>;
+  if ("rpc" in o && o.rpc !== null && typeof o.rpc === "object") {
+    return normalizeSocketRpcResult(o.rpc);
+  }
+  const id = typeof o.id === "string" ? o.id : undefined;
+  const payloadRaw = typeof o.payload === "string" ? o.payload : undefined;
+  return { id, payloadRaw };
+}
+
+function parseRpcPayloadLikeClient(payloadRaw: string | undefined): unknown {
+  if (payloadRaw === undefined || payloadRaw === "") {
+    return undefined;
+  }
+  try {
+    return JSON.parse(payloadRaw);
+  } catch {
+    return payloadRaw;
+  }
+}
+
+type RpcOk = Awaited<ReturnType<Client["rpc"]>>;
+
+/**
+ * RPC over the realtime socket — sends `id` in the envelope (works on Nakama 3.24+).
+ * Use when you already have an open socket (e.g. private room / bot flow).
+ */
+export async function nakamaRpcOverSocket(socket: Socket, rpcId: string, body: object): Promise<RpcOk> {
+  const payloadStr = JSON.stringify(body);
+  try {
+    const raw = await socket.rpc(rpcId, payloadStr);
+    const { id, payloadRaw } = normalizeSocketRpcResult(raw);
+    return {
+      id,
+      payload: parseRpcPayloadLikeClient(payloadRaw) as object | undefined,
+    };
+  } catch (e) {
+    throw await enhanceRpcError(e, rpcId);
+  }
+}
+
+async function nakamaRpcViaEphemeralSocket(
+  client: Client,
+  session: Session,
+  rpcId: string,
+  body: object,
+): Promise<RpcOk> {
+  const sock = client.createSocket(client.useSSL, false);
+  try {
+    await sock.connect(session, true);
+    return await nakamaRpcOverSocket(sock, rpcId, body);
+  } finally {
+    try {
+      sock.disconnect(true);
+    } catch {
+      /* ignore */
+    }
+  }
 }
 
 export async function nakamaRpc(
@@ -61,10 +135,30 @@ export async function nakamaRpc(
   session: Session,
   rpcId: string,
   body: object,
-): Promise<ReturnType<Client["rpc"]>> {
+): Promise<RpcOk> {
+  let rpcIdMissing = false;
   try {
     return await client.rpc(session, rpcId, body);
   } catch (e) {
+    if (isFetchResponse(e) && e.status === 400) {
+      try {
+        const j = (await e.clone().json()) as { message?: string; error?: string };
+        const m = j.message ?? j.error ?? "";
+        rpcIdMissing = isLikelyRpcIdMustSetMessage(m);
+      } catch {
+        /* ignore */
+      }
+    } else {
+      const conv = await nakamaHttpFailureToError(e);
+      rpcIdMissing = isLikelyRpcIdMustSetMessage(conv.message);
+    }
+    if (rpcIdMissing) {
+      try {
+        return await nakamaRpcViaEphemeralSocket(client, session, rpcId, body);
+      } catch (e2) {
+        throw await enhanceRpcError(e2, rpcId);
+      }
+    }
     throw await enhanceRpcError(e, rpcId);
   }
 }

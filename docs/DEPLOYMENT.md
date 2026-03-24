@@ -117,6 +117,8 @@ Other client/env causes:
 
 Quick checks: DevTools → Network: URL host is Nakama, path includes the RPC id, response is JSON not HTML.
 
+**Frontend workaround:** The web client also calls RPCs over the **WebSocket** (`socket.rpc`) for private-room and bot flows, and falls back to a short-lived socket for HTTP RPC failures (e.g. `leaderboard_top`) when the server still returns this error. Upgrading Nakama remains the proper long-term fix.
+
 ## 4. CORS and browser access
 
 If the browser calls Nakama HTTP from a different origin, configure Nakama to allow your frontend origin (see [Nakama configuration](https://heroiclabs.com/docs/nakama/concepts/multiplayer/#session-management) and deployment notes for your version).

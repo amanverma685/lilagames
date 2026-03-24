@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { Session, Socket } from "@heroiclabs/nakama-js";
-import { createNakamaClient, getSessionPlayerId, nakamaRpc } from "./nakamaClient";
+import {
+  clientErrorMessage,
+  createNakamaClient,
+  getSessionPlayerId,
+  nakamaRpc,
+  nakamaRpcOverSocket,
+} from "./nakamaClient";
 import { parseWinLineIndex, WIN_LINE_LABELS } from "./boardGeometry";
 import { playClick, playWin, resumeAudioContext } from "./gameAudio";
 import { fetchLocalLeaderboardRows, isLocalBackend, LocalGameSession } from "./localGame";
@@ -621,7 +627,7 @@ export default function App() {
     mmTicketRef.current = null;
     try {
       await sock.connect(session, true);
-      const res = await nakamaRpc(client, session, "create_private_match", { mode });
+      const res = await nakamaRpcOverSocket(sock, "create_private_match", { mode });
       const payload = res.payload;
       const raw =
         typeof payload === "string"
@@ -639,7 +645,7 @@ export default function App() {
       setPhase("waiting_room");
       await sock.joinMatch(matchId);
     } catch (e) {
-      setStatusMsg(e instanceof Error ? e.message : "Could not create room");
+      setStatusMsg(clientErrorMessage(e) || "Could not create room");
       setHostedRoomCode(null);
       setRoomInviteUrl("");
       setNakamaPrivateHost(false);
@@ -669,7 +675,7 @@ export default function App() {
     mmTicketRef.current = null;
     try {
       await sock.connect(session, true);
-      const res = await nakamaRpc(client, session, "create_bot_match", { mode });
+      const res = await nakamaRpcOverSocket(sock, "create_bot_match", { mode });
       const payload = res.payload;
       const raw =
         typeof payload === "string"
@@ -682,7 +688,7 @@ export default function App() {
       matchIdRef.current = matchId;
       await sock.joinMatch(matchId);
     } catch (e) {
-      setStatusMsg(e instanceof Error ? e.message : "Could not start bot match");
+      setStatusMsg(clientErrorMessage(e) || "Could not start bot match");
       await teardownNakama();
       setPhase("lobby");
     }
