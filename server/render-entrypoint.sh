@@ -14,9 +14,10 @@ DB_NAME="${DB_NAME:-nakama}"
 if [ -n "$DB_HOST" ]; then
   sed -i "s|^[[:space:]]*-[[:space:]]*postgres:5432|  - ${DB_HOST}:${DB_PORT}|" "$CONFIG_PATH"
 fi
-sed -i "s|^username:.*|username: ${DB_USER}|" "$CONFIG_PATH"
-sed -i "s|^password:.*|password: ${DB_PASSWORD}|" "$CONFIG_PATH"
-sed -i "s|^database:.*|database: ${DB_NAME}|" "$CONFIG_PATH"
+# Match indented keys under `database:` only (avoid `^database:` which would break the YAML map).
+sed -i "s|^[[:space:]]*username: nakama|  username: ${DB_USER}|" "$CONFIG_PATH"
+sed -i "s|^[[:space:]]*password: localdev|  password: ${DB_PASSWORD}|" "$CONFIG_PATH"
+sed -i "s|^[[:space:]]*database: nakama|  database: ${DB_NAME}|" "$CONFIG_PATH"
 
 # Use a production server key from Render env vars.
 SERVER_KEY="${NAKAMA_SERVER_KEY:-defaultkey}"

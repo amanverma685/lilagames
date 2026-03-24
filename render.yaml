@@ -10,7 +10,7 @@ services:
     runtime: docker
     plan: free
     dockerContext: ./server
-    dockerfilePath: ./server/Dockerfile.render
+    dockerfilePath: ./server/Dockerfile
     healthCheckPath: /
     envVars:
       - key: DB_HOST

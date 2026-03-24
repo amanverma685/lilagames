@@ -15,3 +15,9 @@ FROM heroiclabs/nakama:${NAKAMA_VERSION}
 
 COPY --from=builder /backend/backend.so /nakama/data/modules/backend.so
 COPY local.yml /nakama/data/local.yml
+COPY render-entrypoint.sh /nakama/data/render-entrypoint.sh
+RUN chmod +x /nakama/data/render-entrypoint.sh
+
+# Render (and plain `docker run`): applies DB_* / NAKAMA_SERVER_KEY / PORT from env, then migrates + starts Nakama.
+# docker-compose.yml overrides entrypoint for local dev — unchanged.
+ENTRYPOINT ["/bin/sh", "/nakama/data/render-entrypoint.sh"]
