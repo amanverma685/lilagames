@@ -192,7 +192,7 @@ func rpcCreateBotMatch(ctx context.Context, logger runtime.Logger, db *sql.DB, n
 
 func rpcLeaderboardTop(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule, payload string) (string, error) {
 	lbID := leaderboardIDFromEnv(ctx)
-	records, _, _, _, err := nk.LeaderboardRecordsList(ctx, lbID, nil, 20, "", 0)
+	records, _, _, _, err := nk.LeaderboardRecordsList(ctx, lbID, nil, 100, "", 0)
 	if err != nil {
 		return "", err
 	}

@@ -318,7 +318,7 @@ function leaderboardTop() {
       metadata: { wins: s.wins, losses: s.losses, draws: s.draws, streak: s.streak },
     }))
     .sort((a, b) => b.score - a.score)
-    .slice(0, 20);
+    .slice(0, 100);
   rows.forEach((r, idx) => {
     r.rank = idx + 1;
   });

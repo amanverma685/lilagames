@@ -12,7 +12,9 @@ import { playClick, playWin, resumeAudioContext } from "./gameAudio";
 import { fetchLocalLeaderboardRows, isLocalBackend, LocalGameSession } from "./localGame";
 import {
   dedupeLeaderboardByUsername,
+  leaderboardDisplayStats,
   LOCAL_BOT_USER_ID,
+  parseLeaderboardRpcPayload,
   type GameMode,
   type LeaderboardRow,
   type MatchStatePayload,
@@ -219,13 +221,7 @@ export default function App() {
     if (!session) return;
     try {
       const res = await nakamaRpc(client, session, "leaderboard_top", {});
-      const p = res.payload;
-      const parsed: LeaderboardRow[] =
-        typeof p === "string"
-          ? JSON.parse(p)
-          : Array.isArray(p)
-            ? (p as LeaderboardRow[])
-            : [];
+      const parsed = parseLeaderboardRpcPayload(res.payload);
       setLeaderboard(dedupeLeaderboardByUsername(parsed));
     } catch {
       setLeaderboard([]);
@@ -259,13 +255,7 @@ export default function App() {
           return;
         }
         const res = await nakamaRpc(client, session, "leaderboard_top", {});
-        const p = res.payload;
-        const parsed: LeaderboardRow[] =
-          typeof p === "string"
-            ? JSON.parse(p)
-            : Array.isArray(p)
-              ? (p as LeaderboardRow[])
-              : [];
+        const parsed = parseLeaderboardRpcPayload(res.payload);
         if (gen !== lbModalGenRef.current) return;
         setLbModalRows(dedupeLeaderboardByUsername(parsed));
       }
@@ -1313,8 +1303,8 @@ export default function App() {
       )}
 
       {phase === "result" && matchState && (
-        <div className="app-main app-main--full">
-          <div className="screen dark screen--fullscreen screen--result">
+        <div className="app-main app-main--result">
+          <div className="screen dark screen--result screen--result-wrap">
             <div className="result-layout">
               <section className="result-layout__outcome" aria-labelledby="result-screen-title">
                 <h2 id="result-screen-title" className="result-screen-title">
@@ -1340,10 +1330,13 @@ export default function App() {
               </section>
 
               <section className="result-layout__leaderboard" aria-label="Leaderboard">
-                <div className="result-lb-scroll">
-                  <div className="lb-block lb-block--embedded">
-                    <h3>Leaderboard</h3>
-                    <table className="lb-table">
+                <div className="lb-block lb-block--embedded">
+                  <h3>Leaderboard</h3>
+                  <p className="muted small result-lb-caption">
+                    Cumulative wins, losses, and draws on this server — ranked by total score (not only this match).
+                  </p>
+                  <div className="result-lb-scroll">
+                    <table className="lb-table lb-table--scroll">
                       <thead>
                         <tr>
                           <th>#</th>
@@ -1362,14 +1355,10 @@ export default function App() {
                           </tr>
                         ) : (
                           leaderboard.map((r, idx) => {
-                            const meta = r.metadata || {};
-                            const w = Number(meta.wins ?? 0);
-                            const l = Number(meta.losses ?? 0);
-                            const d = Number(meta.draws ?? 0);
-                            const streak = Number(meta.streak ?? r.subscore ?? 0);
+                            const { wins: w, losses: l, draws: d, streak, score } = leaderboardDisplayStats(r);
                             const uname = r.username ?? "—";
                             const rid = r.ownerId;
-                            const you = myUserId && rid === myUserId;
+                            const you = myUserId != null && rid != null && String(rid) === String(myUserId);
                             return (
                               <tr key={rid ?? idx}>
                                 <td>{r.rank ?? idx + 1}</td>
@@ -1381,7 +1370,7 @@ export default function App() {
                                   {w}/{l}/{d}
                                 </td>
                                 <td>{streak}</td>
-                                <td>{r.score ?? 0}</td>
+                                <td>{score}</td>
                               </tr>
                             );
                           })
@@ -1553,14 +1542,10 @@ export default function App() {
                       </tr>
                     ) : (
                       lbModalRows.map((r, idx) => {
-                        const meta = r.metadata || {};
-                        const w = Number(meta.wins ?? 0);
-                        const l = Number(meta.losses ?? 0);
-                        const d = Number(meta.draws ?? 0);
-                        const streak = Number(meta.streak ?? r.subscore ?? 0);
+                        const { wins: w, losses: l, draws: d, streak, score } = leaderboardDisplayStats(r);
                         const uname = r.username ?? "—";
                         const rid = r.ownerId;
-                        const you = myUserId && rid === myUserId;
+                        const you = myUserId != null && rid != null && String(rid) === String(myUserId);
                         return (
                           <tr key={rid ?? idx}>
                             <td>{r.rank ?? idx + 1}</td>
@@ -1572,7 +1557,7 @@ export default function App() {
                               {w}/{l}/{d}
                             </td>
                             <td>{streak}</td>
-                            <td>{r.score ?? 0}</td>
+                            <td>{score}</td>
                           </tr>
                         );
                       })
