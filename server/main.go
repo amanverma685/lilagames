@@ -57,6 +57,8 @@ type MatchState struct {
 	TickRate    int          `json:"-"`
 	// Earliest Unix ms at which the bot may move; 0 means no delay armed (see tryApplyBotMove).
 	BotMoveEarliestMs int64 `json:"-"`
+	// Set after applyMatchResults runs so win/draw/forfeit cannot double-count leaderboard (e.g. retried ticks).
+	ResultsApplied bool `json:"resultsApplied,omitempty"`
 }
 
 type moveMsg struct {
@@ -645,6 +647,14 @@ func checkWin(b [9]int) (symbol int, line string) {
 }
 
 func applyMatchResults(ctx context.Context, nk runtime.NakamaModule, st *MatchState) {
+	if st.ResultsApplied {
+		return
+	}
+	st.ResultsApplied = true
+	// Practice vs server bot does not use the global leaderboard (avoids mixing casual counts with ranked PvP).
+	if st.VsBot {
+		return
+	}
 	lbID := leaderboardIDFromEnv(ctx)
 	switch st.Status {
 	case "win", "forfeit":

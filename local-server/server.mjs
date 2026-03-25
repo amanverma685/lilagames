@@ -278,6 +278,7 @@ const PTS_DRAW = 50;
 
 /** @param {Match} match */
 function applyStats(match) {
+  if (match.isBotMatch()) return;
   const st = match.state;
   for (const p of st.players) {
     if (p.userId === BOT_ID) continue;

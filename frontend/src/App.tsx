@@ -1329,59 +1329,72 @@ export default function App() {
                 </div>
               </section>
 
-              <section className="result-layout__leaderboard" aria-label="Leaderboard">
-                <div className="lb-block lb-block--embedded">
-                  <h3>Leaderboard</h3>
-                  <p className="muted small result-lb-caption">
-                    Each row is that player&apos;s finished games on this server (played = W + L + D). Order is still the
-                    server rank (by points), but points are not shown here.
-                  </p>
-                  <div className="result-lb-scroll">
-                    <table className="lb-table lb-table--scroll">
-                      <thead>
-                        <tr>
-                          <th>#</th>
-                          <th>Player</th>
-                          <th title="Finished games">Played</th>
-                          <th title="Wins">W</th>
-                          <th title="Losses">L</th>
-                          <th title="Draws">D</th>
-                          <th>Streak</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {leaderboard.length === 0 ? (
-                          <tr>
-                            <td colSpan={7} className="muted small">
-                              No entries yet
-                            </td>
-                          </tr>
-                        ) : (
-                          leaderboard.map((r, idx) => {
-                            const { wins: w, losses: l, draws: d, streak, matchesPlayed } = leaderboardDisplayStats(r);
-                            const uname = r.username ?? "—";
-                            const rid = r.ownerId;
-                            const you = myUserId != null && rid != null && String(rid) === String(myUserId);
-                            return (
-                              <tr key={rid ?? idx}>
-                                <td>{r.rank ?? idx + 1}</td>
-                                <td>
-                                  {uname}
-                                  {you ? " (you)" : ""}
-                                </td>
-                                <td>{matchesPlayed}</td>
-                                <td>{w}</td>
-                                <td>{l}</td>
-                                <td>{d}</td>
-                                <td>{streak}</td>
-                              </tr>
-                            );
-                          })
-                        )}
-                      </tbody>
-                    </table>
+              <section className="result-layout__leaderboard" aria-label={vsLocalBot ? "Ranked play" : "Leaderboard"}>
+                {vsLocalBot ? (
+                  <div className="lb-block lb-block--embedded">
+                    <h3>Ranked leaderboard</h3>
+                    <p className="muted small result-lb-caption">
+                      Practice vs the bot is <strong>not</strong> saved to the global leaderboard. Each row in the ranked
+                      table is still <strong>one player account only</strong> (their own Played / W / L / D — not mixed
+                      with anyone else). Use <strong>Find match</strong> or <strong>Private room</strong> to earn ranked
+                      stats. Open <strong>Leaderboard</strong> in the toolbar to see the full table.
+                    </p>
                   </div>
-                </div>
+                ) : (
+                  <div className="lb-block lb-block--embedded">
+                    <h3>Leaderboard</h3>
+                    <p className="muted small result-lb-caption">
+                      Each row is <strong>one account only</strong> — Played = that player&apos;s finished ranked games
+                      (W + L + D on this server). Other rows are other people; your counts are not pooled with theirs.
+                      Order follows server rank (by points; points hidden here).
+                    </p>
+                    <div className="result-lb-scroll">
+                      <table className="lb-table lb-table--scroll">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Player</th>
+                            <th title="Finished games">Played</th>
+                            <th title="Wins">W</th>
+                            <th title="Losses">L</th>
+                            <th title="Draws">D</th>
+                            <th>Streak</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {leaderboard.length === 0 ? (
+                            <tr>
+                              <td colSpan={7} className="muted small">
+                                No entries yet
+                              </td>
+                            </tr>
+                          ) : (
+                            leaderboard.map((r, idx) => {
+                              const { wins: w, losses: l, draws: d, streak, matchesPlayed } = leaderboardDisplayStats(r);
+                              const uname = r.username ?? "—";
+                              const rid = r.ownerId;
+                              const you = myUserId != null && rid != null && String(rid) === String(myUserId);
+                              return (
+                                <tr key={rid ?? idx}>
+                                  <td>{r.rank ?? idx + 1}</td>
+                                  <td>
+                                    {uname}
+                                    {you ? " (you)" : ""}
+                                  </td>
+                                  <td>{matchesPlayed}</td>
+                                  <td>{w}</td>
+                                  <td>{l}</td>
+                                  <td>{d}</td>
+                                  <td>{streak}</td>
+                                </tr>
+                              );
+                            })
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </section>
 
               <div className="result-layout__actions">
