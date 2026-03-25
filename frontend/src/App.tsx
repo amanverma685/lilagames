@@ -1333,7 +1333,8 @@ export default function App() {
                 <div className="lb-block lb-block--embedded">
                   <h3>Leaderboard</h3>
                   <p className="muted small result-lb-caption">
-                    Cumulative wins, losses, and draws on this server — ranked by total score (not only this match).
+                    Each row is that player&apos;s finished games on this server (played = W + L + D). Order is still the
+                    server rank (by points), but points are not shown here.
                   </p>
                   <div className="result-lb-scroll">
                     <table className="lb-table lb-table--scroll">
@@ -1341,21 +1342,23 @@ export default function App() {
                         <tr>
                           <th>#</th>
                           <th>Player</th>
-                          <th>W/L/D</th>
+                          <th title="Finished games">Played</th>
+                          <th title="Wins">W</th>
+                          <th title="Losses">L</th>
+                          <th title="Draws">D</th>
                           <th>Streak</th>
-                          <th>Score</th>
                         </tr>
                       </thead>
                       <tbody>
                         {leaderboard.length === 0 ? (
                           <tr>
-                            <td colSpan={5} className="muted small">
+                            <td colSpan={7} className="muted small">
                               No entries yet
                             </td>
                           </tr>
                         ) : (
                           leaderboard.map((r, idx) => {
-                            const { wins: w, losses: l, draws: d, streak, score } = leaderboardDisplayStats(r);
+                            const { wins: w, losses: l, draws: d, streak, matchesPlayed } = leaderboardDisplayStats(r);
                             const uname = r.username ?? "—";
                             const rid = r.ownerId;
                             const you = myUserId != null && rid != null && String(rid) === String(myUserId);
@@ -1366,11 +1369,11 @@ export default function App() {
                                   {uname}
                                   {you ? " (you)" : ""}
                                 </td>
-                                <td>
-                                  {w}/{l}/{d}
-                                </td>
+                                <td>{matchesPlayed}</td>
+                                <td>{w}</td>
+                                <td>{l}</td>
+                                <td>{d}</td>
                                 <td>{streak}</td>
-                                <td>{score}</td>
                               </tr>
                             );
                           })
@@ -1528,21 +1531,23 @@ export default function App() {
                     <tr>
                       <th>#</th>
                       <th>Player</th>
-                      <th>W/L/D</th>
+                      <th title="Finished games">Played</th>
+                      <th title="Wins">W</th>
+                      <th title="Losses">L</th>
+                      <th title="Draws">D</th>
                       <th>Streak</th>
-                      <th>Score</th>
                     </tr>
                   </thead>
                   <tbody>
                     {lbModalRows.length === 0 ? (
                       <tr>
-                        <td colSpan={5} className="muted small">
+                        <td colSpan={7} className="muted small">
                           No entries yet
                         </td>
                       </tr>
                     ) : (
                       lbModalRows.map((r, idx) => {
-                        const { wins: w, losses: l, draws: d, streak, score } = leaderboardDisplayStats(r);
+                        const { wins: w, losses: l, draws: d, streak, matchesPlayed } = leaderboardDisplayStats(r);
                         const uname = r.username ?? "—";
                         const rid = r.ownerId;
                         const you = myUserId != null && rid != null && String(rid) === String(myUserId);
@@ -1553,11 +1558,11 @@ export default function App() {
                               {uname}
                               {you ? " (you)" : ""}
                             </td>
-                            <td>
-                              {w}/{l}/{d}
-                            </td>
+                            <td>{matchesPlayed}</td>
+                            <td>{w}</td>
+                            <td>{l}</td>
+                            <td>{d}</td>
                             <td>{streak}</td>
-                            <td>{score}</td>
                           </tr>
                         );
                       })

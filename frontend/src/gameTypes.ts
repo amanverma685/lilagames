@@ -61,13 +61,14 @@ function metaNumber(meta: Record<string, unknown>, ...keys: string[]): number {
   return 0;
 }
 
-/** Wins / losses / draws / streak / score for UI — reads metadata robustly, then subscore for streak. */
+/** Per-player match counts + streak from metadata (no cumulative points in UI). */
 export function leaderboardDisplayStats(row: LeaderboardRow): {
   wins: number;
   losses: number;
   draws: number;
   streak: number;
-  score: number;
+  /** Finished games recorded for this player (wins + losses + draws). */
+  matchesPlayed: number;
 } {
   const meta = coerceLeaderboardMetadata(row.metadata);
   const wins = metaNumber(meta, "wins", "Wins");
@@ -77,8 +78,8 @@ export function leaderboardDisplayStats(row: LeaderboardRow): {
   const streakFromMeta = metaNumber(meta, "streak", "Streak");
   const streakFromSub = Number.isFinite(Number(row.subscore)) ? Math.trunc(Number(row.subscore)) : 0;
   const streak = hasStreakInMeta ? streakFromMeta : streakFromSub;
-  const score = Number.isFinite(Number(row.score)) ? Math.trunc(Number(row.score)) : 0;
-  return { wins, losses, draws, streak, score };
+  const matchesPlayed = wins + losses + draws;
+  return { wins, losses, draws, streak, matchesPlayed };
 }
 
 export function normalizeLeaderboardRowFromApi(row: unknown): LeaderboardRow | null {
