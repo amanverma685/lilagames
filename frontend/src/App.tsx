@@ -135,7 +135,7 @@ function formatMatchEndReason(reason: string): string {
 }
 
 export default function App() {
-  const client = useRef(createNakamaClient()).current;
+  const client = useMemo(() => createNakamaClient(), []);
   const socketRef = useRef<Socket | null>(null);
   const sessionRef = useRef<Session | null>(null);
   const matchIdRef = useRef<string | null>(null);
